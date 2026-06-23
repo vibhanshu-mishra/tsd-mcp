@@ -32,6 +32,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
+      name: "get_tsd_takeoff_by_member_type",
+      description: "Get steel takeoff summary grouped by member type with total length and weight",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
       name: "list_tsd_members_with_sections",
       description: "List all members in the open TSD model with names, types, and section sizes",
       inputSchema: { type: "object", properties: {} }
@@ -47,8 +52,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
+      name: "get_tsd_steel_takeoff",
+      description: "Get steel material takeoff with total length and calculated weight grouped by section and member type",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
       name: "get_tsd_validation_errors",
       description: "Get validation errors and warnings from the open TSD model",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
+      name: "get_tsd_takeoff_by_section_type",
+      description: "Get steel takeoff summary grouped by section type with total length and weight",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
+      name: "get_tsd_heaviest_sections",
+      description: "Get the sections contributing the most total steel weight in the open TSD model",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
+      name: "get_tsd_design_status_summary",
+      description: "Get a summary of design check statuses in the open TSD model",
       inputSchema: { type: "object", properties: {} }
     },
     {
@@ -65,6 +90,48 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: "get_tsd_top_utilized_members",
       description: "Get the top utilized members in the open TSD model sorted by utilization ratio descending",
       inputSchema: { type: "object", properties: {} }
+    },
+    {
+      name: "get_tsd_model_cost_estimate",
+      description: "Estimate total steel material cost using calculated model tonnage and a user-provided cost per ton",
+      inputSchema: {
+        type: "object",
+        properties: {
+          cost_per_ton: {
+            type: "number",
+            description: "Steel cost per ton, for example 4200"
+          }
+        },
+        required: ["cost_per_ton"]
+      }
+    },
+    {
+      name: "get_tsd_members_by_section",
+      description: "Get all members in the open TSD model matching a specific section size",
+      inputSchema: {
+        type: "object",
+        properties: {
+          section: {
+            type: "string",
+            description: "Section size, for example W 33x130"
+          }
+        },
+        required: ["section"]
+      }
+    },
+    {
+      name: "get_tsd_members_by_type",
+      description: "Get all members in the open TSD model matching a specific member type",
+      inputSchema: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            description: "Member type: Beam, Column, Brace, or Column Base Plate"
+           }
+         },
+         required: ["type"]
+       }
     },
     {
       name: "get_tsd_member_details",
@@ -104,8 +171,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } else if (name === "get_tsd_member_details") {
     const member = request.params.arguments?.member;
     result = runBridge("get_member_details", member);
+  } else if (name === "get_tsd_members_by_section") {
+    const section = request.params.arguments?.section;
+    result = runBridge("get_members_by_section", section);
+  } else if (name === "get_tsd_members_by_type") {
+    const type = request.params.arguments?.type;
+    result = runBridge("get_members_by_type", type);
   } else if (name === "get_tsd_validation_errors") {
     result = runBridge("get_validation_errors");
+  } else if (name === "get_tsd_steel_takeoff") {
+    result = runBridge("get_steel_takeoff");
+  } else if (name === "get_tsd_takeoff_by_section_type") {
+    result = runBridge("get_takeoff_by_section_type");
+  } else if (name === "get_tsd_takeoff_by_member_type") {
+    result = runBridge("get_takeoff_by_member_type");
+  } else if (name === "get_tsd_heaviest_sections") {
+    result = runBridge("get_heaviest_sections");
+  } else if (name === "get_tsd_model_cost_estimate") {
+    const costPerTon = request.params.arguments?.cost_per_ton;
+    result = runBridge("get_model_cost_estimate", String(costPerTon));
+  } else if (name === "get_tsd_design_status_summary") {
+    result = runBridge("get_design_status_summary");
   } else {
     return { content: [{ type: "text", text: `Unknown tool: ${name}` }] };
   }
