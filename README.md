@@ -1,569 +1,316 @@
 # TSD MCP Server
 
-> Connect Claude AI directly to live Tekla Structural Designer 2025 models using the Model Context Protocol (MCP).
+> Connect Claude AI to your live Tekla Structural Designer models using the Model Context Protocol (MCP).
 
-Built by a structural engineer, for structural engineers.
-
-The TSD MCP Server allows Claude Desktop to query live Tekla Structural Designer models using natural language. Ask questions about members, sections, utilization ratios, design status, steel tonnage, takeoffs, and material costs without clicking through the TSD interface.
+Built by a structural engineer, for structural engineers. This MCP server lets you talk to your open TSD models in plain English — query members, review design status, run steel takeoffs, and estimate material costs without clicking through the TSD interface.
 
 ---
 
-# Features
+## Demo
 
-## Model Exploration
+> *"List all members in my TSD model"*
+> *"Which members are failing design checks?"*
+> *"Show me the top utilized members"*
+> *"Generate a steel takeoff"*
+> *"Estimate steel cost at $4200 per ton"*
+> *"How many tons of HSS are in this model?"*
+> *"Are there any validation errors?"*
+> *"Tell me about member B4869"*
 
-* List all members
-* Member type classification (Beam, Column, Brace, Column Base Plate)
-* Section extraction
-* Material extraction
-* Model overview summaries
-* Member filtering by type
-* Member filtering by section
-* Detailed member inspection
-
-## Design Review
-
-* Utilization ratio extraction
-* Top utilized members
-* Failing member identification
-* Near-failing member identification
-* Design status summaries
-* Validation error extraction
-
-## Quantity Takeoff & Estimating
-
-* Steel takeoff generation
-* Total model tonnage
-* Weight per foot calculations
-* Takeoff grouped by section
-* Takeoff grouped by member type
-* Takeoff grouped by section type
-* Heaviest section analysis
-* Material cost estimation
+Once connected, Claude queries your live TSD model and returns results instantly.
 
 ---
 
-# Requirements
+## What Is This?
 
-* Windows
-* Tekla Structural Designer 2025
-* Active TSD license
-* TSD running with a model open
-* Claude Desktop
-* Node.js
-* Visual Studio 2022+
-* .NET 8
+MCP (Model Context Protocol) is an open standard that lets AI assistants connect to external tools and data sources. This server bridges Claude Desktop and Tekla Structural Designer 2025 via the official Remoting API — giving Claude live read access to your open structural model.
+
+No file exports. No copy-paste. Claude talks directly to whatever model you have open in TSD.
 
 ---
 
-# Architecture
+## What You Can Do
 
+**Model exploration**
+- List all members with type classification
+- Filter members by type or section size
+- Inspect individual member details including section, material, and design checks
+- Get a full model overview
+
+**Design review**
+- Extract utilization ratios across the model
+- Identify failing members (UC ≥ 1.0)
+- Flag members near the limit (0.90 ≤ UC < 1.0)
+- Pull the top utilized members sorted by criticality
+- Get validation errors and design status summaries
+
+**Steel takeoff and estimating**
+- Generate a full steel takeoff with length, weight per foot, total weight, and total tonnage
+- Break down tonnage by member type, section type, or individual section
+- Identify the heaviest contributing sections
+- Estimate material cost at any cost-per-ton rate
+
+---
+
+## Requirements
+
+- Windows PC with **Tekla Structural Designer 2025** installed and licensed
+- TSD must be **running** with a model **open** when tools are called
+- [Claude Desktop](https://claude.ai/download)
+- [Node.js](https://nodejs.org) (LTS version)
+- **Visual Studio 2022 or later** (Community edition is free)
+- .NET 8.0
+- A Claude account (Pro plan recommended)
+
+---
+
+## Architecture
 Claude Desktop
 
-↓
+↓ MCP
 
-MCP
+Node.js MCP Server  (server/index.js)
 
-↓
+↓ subprocess
 
-Node.js MCP Server
+C# Bridge           (bridge/Program.cs)
 
-↓
+↓ Remoting API
 
-C# Bridge
-
-↓
-
-Tekla Structural Designer Remoting API
+Tekla Structural Designer 2025
 
 ↓
 
 Open TSD Model
 
----
-
-# Installation
-
-## Build the C# Bridge
-
-Build as x64:
-
-```bash
-dotnet build -f net8.0 -p:Platform=x64
-```
-
-Compiled executable:
-
-```text
-bridge\ConsoleApp1\ConsoleApp1\bin\x64\Debug\net8.0\ConsoleApp1.exe
-```
+The Node.js MCP server receives tool calls from Claude Desktop and passes commands to the C# bridge as a subprocess. The bridge connects to the running TSD instance via the official Remoting API and returns JSON results.
 
 ---
 
-## Test the Bridge
+## Installation
+
+### Step 1 — Build the C# Bridge
+
+1. Open **Visual Studio**
+2. Create a new **Console App** (C#, .NET — not .NET Framework), name it `TsdBridge`, location `C:\tsd-mcp\bridge`
+3. Set Framework to **.NET 8.0**
+4. Go to **Tools → NuGet Package Manager → Manage NuGet Packages for Solution**, search for `TeklaStructuralDesigner.RemotingAPI` and install version **25.3.0**
+5. Go to **Build → Configuration Manager** and set the platform to **x64**
+6. Replace all contents of `Program.cs` with the contents of `bridge/Program.cs` from this repository
+7. Press **Ctrl+Shift+B** to build
+
+The compiled bridge will be at:
+C:\tsd-mcp\bridge\ConsoleApp1\ConsoleApp1\bin\x64\Debug\net8.0\ConsoleApp1.exe
+
+---
+
+### Step 2 — Set Up the Node.js MCP Server
+
+Open Command Prompt and run these one at a time:
 
 ```bash
+mkdir C:\tsd-mcp\server
+cd C:\tsd-mcp\server
+npm init -y
+npm install @modelcontextprotocol/sdk
+```
+
+Open `C:\tsd-mcp\server\package.json` in Notepad and add `"type": "module"`:
+
+```json
+{
+  "name": "tsd-mcp-server",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js"
+}
+```
+
+Copy `server/index.js` from this repository to `C:\tsd-mcp\server\index.js`.
+
+---
+
+### Step 3 — Test the Bridge
+
+Open TSD with any model, then run in Command Prompt:
 "C:\tsd-mcp\bridge\ConsoleApp1\ConsoleApp1\bin\x64\Debug\net8.0\ConsoleApp1.exe" list_members
-```
 
-TSD must be open with a model loaded.
+You should see a JSON array of all members in the model. If you see `"error": "TSD is not running"` — make sure TSD is open with a model loaded.
 
 ---
 
-## Configure Claude Desktop
+### Step 4 — Connect to Claude Desktop
 
-Edit:
-
-```text
-%APPDATA%\Claude\claude_desktop_config.json
-```
-
-Add:
+Open `%APPDATA%\Claude\claude_desktop_config.json` and add the `tsd-mcp` entry inside `mcpServers`:
 
 ```json
 {
   "mcpServers": {
     "tsd-mcp": {
       "command": "node",
-      "args": [
-        "C:\\tsd-mcp\\server\\index.js"
-      ]
+      "args": ["C:\\tsd-mcp\\server\\index.js"]
     }
   }
 }
 ```
 
-Restart Claude Desktop.
+Fully quit Claude Desktop and reopen it.
 
 ---
 
-# Available Tools
+### Step 5 — Verify It's Running
 
-## Member Tools
+Go to **Settings → Developer** and confirm `tsd-mcp` shows as **running**.
 
-### list_tsd_members
+---
 
-Lists all members in the open model.
+## Example Prompts
 
-### list_tsd_members_with_sections
+**Model exploration**
+List all members in my TSD model
 
-Lists all members with:
+Show me all braces
 
-* Member Name
-* Member Type
-* Section Size
+Show me all W 33x130 members
 
-### get_tsd_member_details
-
-Returns:
-
-* Member Name
-* Member Type
-* Section
-* Material
-* Design Checks
-* Utilization Ratios
-
-Example:
-
-```text
 Tell me about member B4869
-```
 
-### get_tsd_members_by_type
+**Design review**
+Which members are failing?
 
-Returns all members matching:
-
-* Beam
-* Column
-* Brace
-* Column Base Plate
-
-Example:
-
-```text
-Show me all braces
-```
-
-### get_tsd_members_by_section
-
-Returns all members using a given section.
-
-Example:
-
-```text
-Show me all W 33x130 members
-```
-
----
-
-## Model Summary Tools
-
-### get_tsd_design_summary
-
-Returns total member counts grouped by type.
-
-### get_tsd_model_overview
-
-Returns:
-
-* Total Members
-* Member Types
-* Sections
-* Materials
-
----
-
-## Design Review Tools
-
-### get_tsd_validation_errors
-
-Returns model validation warnings and errors.
-
-### get_tsd_design_status_summary
-
-Returns:
-
-* Pass
-* Warning
-* Fail
-* Not Required
-* Unknown
-
-counts across the model.
-
-### get_tsd_failing_members
-
-Returns members with:
-
-```text
-Utilization Ratio >= 1.0
-```
-
-### get_tsd_members_near_limit
-
-Returns members with:
-
-```text
-0.90 <= Utilization Ratio < 1.0
-```
-
-### get_tsd_top_utilized_members
-
-Returns members sorted by utilization ratio descending.
-
----
-
-## Steel Takeoff Tools
-
-### get_tsd_steel_takeoff
-
-Generates:
-
-* Total Length
-* Weight per Foot
-* Total Weight
-* Total Tons
-
-grouped by:
-
-* Section
-* Section Type
-* Member Type
-
-Example:
-
-```text
-Generate a steel takeoff
-```
-
-### get_tsd_takeoff_by_member_type
-
-Returns takeoff grouped by:
-
-* Beam
-* Column
-* Brace
-* Column Base Plate
-
-Example:
-
-```text
-How many tons are beams?
-```
-
-### get_tsd_takeoff_by_section_type
-
-Returns takeoff grouped by:
-
-* W Shapes
-* HSS
-* Angles
-* Other Section Types
-
-Example:
-
-```text
-How many tons are HSS?
-```
-
-### get_tsd_heaviest_sections
-
-Returns sections contributing the most tonnage.
-
-Example:
-
-```text
-Show me the heaviest sections in the model
-```
-
----
-
-## Estimating Tools
-
-### get_tsd_model_cost_estimate
-
-Input:
-
-```text
-Cost Per Ton
-```
-
-Example:
-
-```text
-Estimate steel cost at $4200 per ton
-```
-
-Output:
-
-```json
-{
-  "total_weight_tons": 3471.04,
-  "cost_per_ton": 4200,
-  "estimated_material_cost": 14578368
-}
-```
-
----
-
-# Example Prompts
-
-## Model Exploration
-
-```text
-List all members
-```
-
-```text
-Show me all beams
-```
-
-```text
-Show me all braces
-```
-
-```text
-Show me all W 33x130 members
-```
-
-```text
-Tell me about B4869
-```
-
----
-
-## Design Review
-
-```text
-Show me all failing members
-```
-
-```text
 Show me members near failure
-```
 
-```text
 Show me the most critical members
-```
 
-```text
 Give me a design status summary
-```
 
-```text
 Are there any validation errors?
-```
 
----
-
-## Steel Takeoff
-
-```text
+**Steel takeoff**
 Generate a steel takeoff
-```
 
-```text
 How many tons of steel are in this model?
-```
 
-```text
 How many tons are W-shapes?
-```
 
-```text
 Show me the heaviest sections
-```
 
-```text
-What section contributes the most weight?
-```
-
----
-
-## Estimating
-
-```text
+**Estimating**
 Estimate steel cost at $4200 per ton
-```
 
-```text
-How much steel is in this building?
-```
-
-```text
 What's the total tonnage?
-```
 
 ---
 
-# Important Notes
+## Available Tools
 
-## TSD Must Be Running
-
-The bridge connects to an active TSD process.
-
-If TSD is not running or no model is open, tools will fail.
-
-## x64 Required
-
-The Tekla Structural Designer Remoting API is AMD64 only.
-
-Build the bridge as:
-
-```text
-x64
-```
-
-Do not use:
-
-```text
-Any CPU
-```
-
-## Single Model
-
-The bridge connects to the first active TSD instance.
+| Tool | Description |
+|---|---|
+| `list_tsd_members` | Lists all members with inferred type (Beam, Column, Brace, Column Base Plate) |
+| `list_tsd_members_with_sections` | Lists all members with section size and type |
+| `get_tsd_member_details` | Returns section, material, and design check details for a specific member |
+| `get_tsd_members_by_type` | Filters members by type |
+| `get_tsd_members_by_section` | Returns all members using a given section size |
+| `get_tsd_design_summary` | Member counts grouped by type |
+| `get_tsd_model_overview` | Full model inventory including sections and materials |
+| `get_tsd_validation_errors` | Validation warnings and errors from the open model |
+| `get_tsd_design_status_summary` | Pass/Fail/Warning counts across the model |
+| `get_tsd_failing_members` | All members with UC ≥ 1.0 |
+| `get_tsd_members_near_limit` | Members with 0.90 ≤ UC < 1.0 |
+| `get_tsd_top_utilized_members` | Highest utilization members sorted descending |
+| `get_tsd_steel_takeoff` | Full steel takeoff with length, weight per foot, total weight, and tonnage grouped by section, section type, and member type |
+| `get_tsd_takeoff_by_member_type` | Tonnage broken down by Beam, Column, Brace, Column Base Plate |
+| `get_tsd_takeoff_by_section_type` | Tonnage broken down by W shapes, HSS, angles, and other section types |
+| `get_tsd_heaviest_sections` | Sections contributing the most tonnage to the model |
+| `get_tsd_model_cost_estimate` | Estimated material cost given a cost-per-ton input |
 
 ---
 
-# Technical Notes
+## Technical Notes
 
-## Member Type Inference
+### Connection Method
 
-TSD exposes all members generically as "Member".
+The bridge discovers running TSD instances using:
 
-The server infers:
-
-```text
-B*       → Beam
-C*       → Column
-BR*      → Brace
-CBase*   → Column Base Plate
+```csharp
+ApplicationFactory.GetRunningApplicationsAsync()
 ```
 
-using TSD naming conventions.
+TSD must already be running. The bridge does not launch TSD.
 
-## Section Extraction
+---
 
-Section names are extracted directly from:
+### Object Hierarchy
 
-```text
-ElementSection
-→ PhysicalSection
-→ LongName
-```
+The Remoting API follows:
+Application → Document → Model → Member → Span → ElementSection → PhysicalSection
 
-Examples:
+Section sizes are extracted from `PhysicalSection.LongName`:
+W 14x193
 
-```text
-W 33x130
-W 24x76
 HSS 10x10x1/2
-```
 
-## Steel Weight Calculations
+W 24x76
 
-Steel takeoff calculations are derived directly from TSD section properties:
-
-```text
-Mass
-Length
-```
-
-No external AISC database is required.
+Steel takeoff calculations are derived directly from TSD section mass and member length properties — no external AISC database required.
 
 ---
 
-# Roadmap
+### Member Type Classification
 
-## Completed
+The Remoting API exposes all members as a generic `Member` type. Types are inferred from TSD's own naming convention:
 
-* Live TSD Connection
-* Member Listing
-* Member Type Classification
-* Section Extraction
-* Material Extraction
-* Model Overview
-* Validation Errors
-* Design Status Summary
-* Member Details
-* Members By Type
-* Members By Section
-* Utilization Ratios
-* Failing Members
-* Near-Failing Members
-* Top Utilized Members
-* Steel Takeoff
-* Takeoff By Member Type
-* Takeoff By Section Type
-* Heaviest Sections
-* Material Cost Estimation
-
-## Planned
-
-* Load Combination Extraction
-* Solver Warnings
-* Analysis Results
-* Member Forces
-* Reactions
-* Governing Load Combinations
-* Connection Design Summaries
-* Excel Export
-* CSV Export
+| Prefix | Type |
+|---|---|
+| B | Beam |
+| C | Column |
+| BR | Brace |
+| CBase | Column Base Plate |
 
 ---
 
-# License
+### x64 Requirement
 
-MIT License
+The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Building as `Any CPU` may compile successfully but will fail at runtime.
 
 ---
 
-# Author
+## Roadmap
 
-Vibhanshu Mishra, PE
+**Completed**
+- [x] Live TSD connection via Remoting API
+- [x] Member listing and type classification
+- [x] Section and material extraction
+- [x] Member filtering by type and section
+- [x] Individual member detail inspection
+- [x] Model overview
+- [x] Validation error extraction
+- [x] Design status summary
+- [x] Utilization ratio extraction
+- [x] Failing members (UC ≥ 1.0)
+- [x] Near-limit members (0.90 ≤ UC < 1.0)
+- [x] Top utilized members
+- [x] Steel takeoff by section, section type, and member type
+- [x] Heaviest sections analysis
+- [x] Material cost estimation
 
-Structural Engineer
+**Planned**
+- [ ] Load combination extraction
+- [ ] Solver warnings
+- [ ] Member forces and reactions
+- [ ] Governing load combination per member
+- [ ] Excel and CSV export
 
-Building AI tools for structural engineers.
+---
+
+## About
+
+Built by **Vibhanshu Mishra, PE** — Structural Engineer at AG&E Structural Engineers, Austin TX.
+
+Specializing in miscellaneous steel and industrial structures. Building AI tools for a niche where none existed.
+
+---
+
+## License
+
+MIT License — free to use, modify, and share.
