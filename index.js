@@ -75,6 +75,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {}
       }
     },
+    {
+      name: "get_tsd_members_near_limit",
+      description: "Get members in the open TSD model with utilization ratio between 0.90 and 1.0",
+      inputSchema: {
+        type: "object",
+        properties: {}
+      }
+    },
+    {
+      name: "get_tsd_failing_members",
+      description: ""Get all members in the open TSD model with utilization ratio greater than or equal to 1.0",
+      inputSchema: {
+        type: "object",
+        properties: {}
+      }
+    },
+    {
+      name: "get_tsd_top_utilized_members",
+      description: "Get the top utilized members in the open TSD model sorted by utilization ratio",
+      inputSchema: {
+        type: "object",
+        properties: {}
+      }
+    }
   ]
 }));
 
@@ -90,6 +114,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     result = runBridge("get_design_summary");
   } else if (name === "get_tsd_model_overview") {
     result = runBridge("get_model_overview");
+  } else if (name === "get_tsd_top_utilized_members") {
+    result = runBridge("get_top_utilized_members");
+  } else if (name === "get_tsd_failing_members") {
+    result = runBridge("get_failing_members");
+  } else if (name === "get_tsd_members_near_limit") {
+    result = runBridge("get_members_near_limit");
   } else if (name === "get_tsd_validation_errors") {
     result = runBridge("get_validation_errors");
   } else {
