@@ -130,10 +130,6 @@ You should see a JSON array of all members in the model. If you see `"TSD is not
 ```json
 {
   "mcpServers": {
-    "risa3d": {
-      "command": "node",
-      "args": ["C:\\risa-mcp\\index.js"]
-    },
     "tsd-mcp": {
       "command": "node",
       "args": ["C:\\tsd-mcp\\server\\index.js"]
@@ -143,7 +139,7 @@ You should see a JSON array of all members in the model. If you see `"TSD is not
 ```
 
 5. Save the file
-6. Fully quit Claude Desktop (right-click system tray icon → Quit)
+6. Fully quit Claude Desktop (right-click the system tray icon → Quit)
 7. Reopen Claude Desktop
 
 ---
