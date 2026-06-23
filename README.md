@@ -4,7 +4,7 @@
 
 Built by a structural engineer, for structural engineers.
 
-This MCP server allows AI assistants to connect directly to an open Tekla Structural Designer model and answer questions about members, sections, model composition, and validation status without manually navigating the TSD interface.
+This MCP server allows AI assistants to connect directly to an open Tekla Structural Designer model and answer questions about members, sections, utilization ratios, design failures, model composition, and validation status without manually navigating the TSD interface.
 
 ---
 
@@ -14,15 +14,19 @@ Once connected, you can ask:
 
 > "List all members in my TSD model"
 
-> "How many beams, columns, braces, and base plates are in this model?"
-
 > "Show me the section size for every member"
 
 > "What are the most common sections in this model?"
 
+> "Which members are failing design checks?"
+
+> "Show me the top utilized members"
+
+> "Which members are close to failing?"
+
 > "Give me a complete overview of the model"
 
-> "Are there any validation errors in the open model?"
+> "Are there any validation errors in the model?"
 
 Claude or ChatGPT will query your live TSD model and return results instantly.
 
@@ -34,13 +38,13 @@ MCP (Model Context Protocol) is an open standard that allows AI assistants to co
 
 This project acts as a bridge between:
 
-* Claude Desktop
-* ChatGPT Desktop
-* Any MCP-compatible AI client
+- Claude Desktop
+- ChatGPT Desktop
+- Any MCP-compatible AI client
 
 and
 
-* Tekla Structural Designer 2025
+- Tekla Structural Designer 2025
 
 The MCP server communicates with a C# bridge which connects to Tekla Structural Designer through the official Remoting API.
 
@@ -52,10 +56,10 @@ The MCP server communicates with a C# bridge which connects to Tekla Structural 
 
 Retrieve all members in the active model:
 
-* Beams
-* Columns
-* Braces
-* Column Base Plates
+- Beams
+- Columns
+- Braces
+- Column Base Plates
 
 Tool:
 
@@ -84,9 +88,9 @@ Example:
 
 Retrieve:
 
-* Section size
-* Section type
-* Material type
+- Section size
+- Section type
+- Material type
 
 Tool:
 
@@ -108,11 +112,11 @@ Example:
 
 Supported section families include:
 
-* W Shapes
-* HSS Shapes
-* Double Angles
-* Column Base Plates
-* Other physical sections exposed through the TSD API
+- W Shapes
+- HSS Shapes
+- Double Angles
+- Column Base Plates
+- Other physical sections exposed through the TSD API
 
 ---
 
@@ -158,10 +162,10 @@ Example:
 
 Returns:
 
-* Total members
-* Member type counts
-* Section usage summary
-* Material summary
+- Total members
+- Member type counts
+- Section usage summary
+- Material summary
 
 Tool:
 
@@ -180,32 +184,6 @@ Example:
 }
 ```
 
-Example output from a real project:
-
-```json
-{
-  "total_members": 2269,
-  "by_type": [
-    {
-      "type": "Beam",
-      "count": 1902
-    },
-    {
-      "type": "Brace",
-      "count": 160
-    },
-    {
-      "type": "Column Base Plate",
-      "count": 125
-    },
-    {
-      "type": "Column",
-      "count": 82
-    }
-  ]
-}
-```
-
 ---
 
 ## Validation Information
@@ -220,14 +198,92 @@ get_tsd_validation_errors
 
 ---
 
+## Utilization Review
+
+Get the most highly utilized members in the model.
+
+Tool:
+
+```text
+get_tsd_top_utilized_members
+```
+
+Example:
+
+```json
+[
+  {
+    "member": "B4869",
+    "type": "Beam",
+    "section": "W 33x130",
+    "status": "Fail",
+    "utilization_ratio": 1.093
+  }
+]
+```
+
+---
+
+## Failing Members
+
+Return all members with utilization ratios greater than or equal to 1.0.
+
+Tool:
+
+```text
+get_tsd_failing_members
+```
+
+Example:
+
+```json
+[
+  {
+    "member": "B4869",
+    "type": "Beam",
+    "section": "W 33x130",
+    "utilization_ratio": 1.093
+  }
+]
+```
+
+---
+
+## Members Near Limit
+
+Return members with utilization ratios between 0.90 and 1.00.
+
+Tool:
+
+```text
+get_tsd_members_near_limit
+```
+
+Example:
+
+```json
+[
+  {
+    "member": "BR4.137",
+    "type": "Brace",
+    "section": "2L 6x6x3/8x3/8",
+    "utilization_ratio": 0.999
+  }
+]
+```
+
+This is useful for identifying members that technically pass but may need review.
+
+---
+
 # Requirements
 
-* Windows PC
-* Tekla Structural Designer 2025 installed and licensed
-* TSD must be running with a model open
-* Node.js (LTS recommended)
-* .NET 8
-* Claude Desktop, ChatGPT Desktop, or another MCP-compatible client
+- Windows PC
+- Tekla Structural Designer 2025 installed and licensed
+- TSD must be running with a model open
+- Node.js (LTS recommended)
+- .NET 8
+- Claude Desktop, ChatGPT Desktop, or another MCP-compatible client
 
 ---
 
@@ -276,9 +332,9 @@ Open the bridge project in Visual Studio.
 
 Requirements:
 
-* Visual Studio 2022+
-* .NET 8 SDK
-* TeklaStructuralDesigner.RemotingAPI NuGet package
+- Visual Studio 2022+
+- .NET 8 SDK
+- TeklaStructuralDesigner.RemotingAPI NuGet package
 
 Build:
 
@@ -347,13 +403,16 @@ Restart Claude Desktop.
 
 # Available MCP Tools
 
-| Tool                           | Description                                                 |
-| ------------------------------ | ----------------------------------------------------------- |
-| list_tsd_members               | Lists all members and inferred member types                 |
+| Tool | Description |
+|--------|--------|
+| list_tsd_members | Lists all members and inferred member types |
 | list_tsd_members_with_sections | Lists members with section size, section type, and material |
-| get_tsd_design_summary         | Returns member counts grouped by type                       |
-| get_tsd_model_overview         | Returns complete model inventory and section summary        |
-| get_tsd_validation_errors      | Returns validation warnings and errors                      |
+| get_tsd_design_summary | Returns member counts grouped by type |
+| get_tsd_model_overview | Returns complete model inventory and section summary |
+| get_tsd_validation_errors | Returns validation warnings and errors |
+| get_tsd_top_utilized_members | Returns highest utilization members sorted descending |
+| get_tsd_failing_members | Returns members with UC ≥ 1.0 |
+| get_tsd_members_near_limit | Returns members with 0.90 ≤ UC < 1.0 |
 
 ---
 
@@ -361,13 +420,15 @@ Restart Claude Desktop.
 
 Try asking:
 
-* List all members in my TSD model
-* Show all member section sizes
-* Give me a design summary
-* Give me a complete model overview
-* What are the most common sections in this model?
-* How many beams, columns, braces, and base plates are there?
-* Are there any validation errors?
+- List all members in my TSD model
+- Show all member section sizes
+- Give me a design summary
+- Give me a complete model overview
+- What are the most common sections in this model?
+- Show me the top utilized members
+- Which members are failing?
+- Which members are close to failing?
+- Are there any validation errors?
 
 ---
 
@@ -413,7 +474,7 @@ Section sizes are extracted from:
 PhysicalSection.LongName
 ```
 
-Example:
+Examples:
 
 ```text
 W 14x193
@@ -423,18 +484,42 @@ W 24x76
 
 ---
 
+## Design Check Results
+
+Utilization ratios and design statuses are extracted from:
+
+```text
+Member
+  ↓
+Span
+  ↓
+CheckResults
+  ↓
+CheckResult
+      ├─ CheckStatus
+      └─ UtilizationRatio
+```
+
+Supported check categories discovered so far:
+
+- Static
+- RSA
+- Member Stability
+
+---
+
 ## Member Type Classification
 
 The Remoting API exposes all members simply as "Member".
 
 Member types are inferred from TSD naming conventions:
 
-| Prefix | Type              |
-| ------ | ----------------- |
-| B      | Beam              |
-| C      | Column            |
-| BR     | Brace             |
-| CBase  | Column Base Plate |
+| Prefix | Type |
+|----------|----------|
+| B | Beam |
+| C | Column |
+| BR | Brace |
+| CBase | Column Base Plate |
 
 ---
 
@@ -452,26 +537,29 @@ Building as Any CPU may compile successfully but can fail at runtime.
 
 ## Completed
 
-* [x] Connect to live TSD 2025 instance
-* [x] Member discovery
-* [x] Member classification
-* [x] Design summary
-* [x] Validation extraction
-* [x] Section size extraction
-* [x] Section type extraction
-* [x] Material type extraction
-* [x] Model overview reporting
+- [x] Connect to live TSD 2025 instance
+- [x] Member discovery
+- [x] Member classification
+- [x] Section extraction
+- [x] Material extraction
+- [x] Design summary
+- [x] Model overview
+- [x] Validation extraction
+- [x] Utilization extraction
+- [x] Top utilized members
+- [x] Failing members
+- [x] Near-limit members
 
 ## Planned
 
-* [ ] Members by section
-* [ ] Members by type
-* [ ] Utilization ratios
-* [ ] Failing member detection
-* [ ] Solver error extraction
-* [ ] Load combination listing
-* [ ] Design result extraction
-* [ ] Excel export
+- [ ] Member details
+- [ ] Members by section
+- [ ] Members by type
+- [ ] Load combination extraction
+- [ ] Solver warning extraction
+- [ ] Design result extraction
+- [ ] Excel export
+- [ ] AI-assisted design review workflows
 
 ---
 
