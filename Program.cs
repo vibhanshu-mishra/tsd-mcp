@@ -491,6 +491,103 @@ try
 
         Console.WriteLine(JsonSerializer.Serialize(nearLimit));
     }
+    else if (command == "get_member_details")
+    {
+        if (args.Length < 2)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { error = "Member name required" }));
+            return;
+        }
+
+        string targetName = args[1];
+
+        var members = await model.GetMembersAsync(null);
+        var member = members.FirstOrDefault(m =>
+            string.Equals(m.Name, targetName, StringComparison.OrdinalIgnoreCase));
+
+        if (member == null)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { error = $"Member not found: {targetName}" }));
+            return;
+        }
+
+        var spans = await member.GetSpanAsync(null);
+        var spanResults = new List<object>();
+
+        foreach (var span in spans)
+        {
+            string section = "Unknown";
+            string sectionType = "Unknown";
+            string materialType = "Unknown";
+
+            try
+            {
+                var physicalSection = GetPhysicalSection(span);
+
+                section =
+                    GetPropertyValue(physicalSection, "LongName")
+                    ?? GetPropertyValue(physicalSection, "ShortName")
+                    ?? "Unknown";
+
+                sectionType = GetPropertyValue(physicalSection, "SectionType") ?? "Unknown";
+                materialType = GetPropertyValue(physicalSection, "MaterialType") ?? "Unknown";
+            }
+            catch { }
+
+            var checks = new List<object>();
+
+            try
+            {
+                var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+                if (valueEnumerable != null)
+                {
+                    foreach (var item in valueEnumerable)
+                    {
+                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
+                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                        checks.Add(new
+                        {
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = ratio
+                        });
+                    }
+                }
+            }
+            catch { }
+
+            spanResults.Add(new
+            {
+                span = span.Name,
+                section,
+                section_type = sectionType,
+                material_type = materialType,
+                checks
+            });
+        }
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            member = member.Name,
+            type = InferMemberType(member.Name),
+            spans = spanResults
+        }));
+    }
     else if (command == "debug_check_results")
     {
         var members = await model.GetMembersAsync(null);
