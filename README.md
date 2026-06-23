@@ -339,13 +339,13 @@ Requirements:
 Build:
 
 ```bash
-dotnet build -f net8.0 -r win-x64
+dotnet build -f net8.0 -p:Platform=x64
 ```
 
 The resulting bridge DLL will be located at:
 
 ```text
-bridge\ConsoleApp1\ConsoleApp1\bin\Debug\net8.0\win-x64\ConsoleApp1.dll
+bridge\ConsoleApp1\ConsoleApp1\bin\x64\Debug\net8.0\ConsoleApp1.exe
 ```
 
 ---
@@ -357,7 +357,7 @@ Open Tekla Structural Designer and load any model.
 Run:
 
 ```bash
-dotnet bridge\ConsoleApp1\ConsoleApp1\bin\Debug\net8.0\win-x64\ConsoleApp1.dll list_members
+"C:\tsd-mcp\bridge\ConsoleApp1\ConsoleApp1\bin\x64\Debug\net8.0\ConsoleApp1.exe" list_members
 ```
 
 You should receive JSON output.
@@ -370,7 +370,7 @@ If you see:
 }
 ```
 
-ensure TSD is open and a model is loaded.
+Ensure TSD is open and a model is loaded.
 
 ---
 
