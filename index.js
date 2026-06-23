@@ -85,7 +85,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "get_tsd_failing_members",
-      description: ""Get all members in the open TSD model with utilization ratio greater than or equal to 1.0",
+      description: "Get all members in the open TSD model with utilization ratio greater than or equal to 1.0",
       inputSchema: {
         type: "object",
         properties: {}
