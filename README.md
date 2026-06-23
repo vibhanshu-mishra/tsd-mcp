@@ -20,8 +20,6 @@ Once connected, Claude talks directly to whatever model you have open in TSD.
 
 MCP (Model Context Protocol) is an open standard that lets AI assistants like Claude connect to external tools and data sources. This server acts as a bridge between Claude Desktop and Tekla Structural Designer 2025. It connects to TSD's Remoting API via a C# bridge process, giving Claude live read access to your open structural model.
 
-Unlike the RISA-3D MCP server which reads static `.tsm` files, this server connects to a running TSD instance — so it always reflects the current state of your model.
-
 ---
 
 ## What You Can Do
