@@ -1,240 +1,492 @@
 # TSD MCP Server
 
-> Connect Claude AI to your live Tekla Structural Designer models using the Model Context Protocol (MCP).
+> Connect Claude, ChatGPT, and any MCP-compatible AI assistant to your live Tekla Structural Designer models using the Model Context Protocol (MCP).
 
-Built by a structural engineer, for structural engineers. This MCP server lets you talk to your open TSD models in plain English — query members, review design status, and surface validation errors without clicking through the UI.
+Built by a structural engineer, for structural engineers.
 
----
-
-## Demo
-
-> *"List all members in my TSD model"*
-> *"How many beams, columns, and braces are in this model?"*
-> *"Are there any validation errors in the open model?"*
-
-Once connected, Claude talks directly to whatever model you have open in TSD.
+This MCP server allows AI assistants to connect directly to an open Tekla Structural Designer model and answer questions about members, sections, model composition, and validation status without manually navigating the TSD interface.
 
 ---
 
-## What Is This?
+# Demo
 
-MCP (Model Context Protocol) is an open standard that lets AI assistants like Claude connect to external tools and data sources. This server acts as a bridge between Claude Desktop and Tekla Structural Designer 2025. It connects to TSD's Remoting API via a C# bridge process, giving Claude live read access to your open structural model.
+Once connected, you can ask:
 
----
+> "List all members in my TSD model"
 
-## What You Can Do
+> "How many beams, columns, braces, and base plates are in this model?"
 
-Once connected, you can ask Claude things like:
+> "Show me the section size for every member"
 
-- *"List all members in my TSD model"*
-- *"How many beams, columns, and braces are in this model?"*
-- *"Give me a design summary for the open model"*
-- *"Are there any validation errors I should know about?"*
-- *"How many members are in the model total?"*
+> "What are the most common sections in this model?"
 
----
+> "Give me a complete overview of the model"
 
-## Requirements
+> "Are there any validation errors in the open model?"
 
-- Windows PC with **Tekla Structural Designer 2025** installed and licensed
-- TSD must be **running** with a model **open** when using the tools
-- [Claude Desktop](https://claude.ai/download) (free)
-- [Node.js](https://nodejs.org) (LTS version — free)
-- **Visual Studio 2022 or later** (Community edition is free) with .NET 8.0 support
-- A Claude account (Pro plan recommended)
+Claude or ChatGPT will query your live TSD model and return results instantly.
 
 ---
 
-## Architecture
+# What Is This?
 
-This server has two components:
-Claude Desktop
+MCP (Model Context Protocol) is an open standard that allows AI assistants to connect to external tools and data sources.
 
-↓ MCP
+This project acts as a bridge between:
 
-Node.js MCP Server (server/index.js)
+* Claude Desktop
+* ChatGPT Desktop
+* Any MCP-compatible AI client
 
-↓ subprocess
+and
 
-C# Bridge (bridge/Program.cs)
+* Tekla Structural Designer 2025
 
-↓ Remoting API
-
-Tekla Structural Designer 2025
-
-The C# bridge connects to the running TSD instance using the official `TeklaStructuralDesigner.RemotingAPI` NuGet package. The Node.js MCP server calls the bridge as a subprocess and returns results to Claude.
+The MCP server communicates with a C# bridge which connects to Tekla Structural Designer through the official Remoting API.
 
 ---
 
-## Installation
+# Current Features
 
-### Step 1 — Build the C# Bridge
+## Member Discovery
 
-1. Open **Visual Studio 2022 or later**
-2. Create a new project: **Console App** (C#, .NET — not .NET Framework)
-3. Name it `TsdBridge`, location `C:\tsd-mcp\bridge`
-4. Set Framework to **.NET 8.0**
-5. Go to **Tools → NuGet Package Manager → Manage NuGet Packages for Solution**
-6. Search for `TeklaStructuralDesigner.RemotingAPI` and install version **25.3.0**
-7. Go to **Build → Configuration Manager**, set platform to **x64**
-8. Replace all contents of `Program.cs` with the contents of `bridge/Program.cs` from this repository
-9. Press **Ctrl+Shift+B** to build
+Retrieve all members in the active model:
 
-The compiled bridge will be at:
-C:\tsd-mcp\bridge\TsdBridge\TsdBridge\bin\x64\Debug\net8.0\TsdBridge.exe
+* Beams
+* Columns
+* Braces
+* Column Base Plates
 
----
+Tool:
 
-### Step 2 — Set Up the Node.js MCP Server
-
-Open Command Prompt and run these one at a time:
-
-```bash
-mkdir C:\tsd-mcp\server
-cd C:\tsd-mcp\server
-npm init -y
-npm install @modelcontextprotocol/sdk
+```text
+list_tsd_members
 ```
 
-Then open `C:\tsd-mcp\server\package.json` in Notepad and add `"type": "module"`:
+Example:
+
+```json
+[
+  {
+    "name": "B4982",
+    "type": "Beam"
+  },
+  {
+    "name": "C4418",
+    "type": "Column"
+  }
+]
+```
+
+---
+
+## Section Extraction
+
+Retrieve:
+
+* Section size
+* Section type
+* Material type
+
+Tool:
+
+```text
+list_tsd_members_with_sections
+```
+
+Example:
 
 ```json
 {
-  "name": "tsd-mcp-server",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "index.js"
+  "name": "B4982",
+  "type": "Beam",
+  "section": "W 18x35",
+  "section_type": "W",
+  "material_type": "Steel"
 }
 ```
 
-Copy `server/index.js` from this repository to `C:\tsd-mcp\server\index.js`.
+Supported section families include:
+
+* W Shapes
+* HSS Shapes
+* Double Angles
+* Column Base Plates
+* Other physical sections exposed through the TSD API
 
 ---
 
-### Step 3 — Test the Bridge
+## Design Summary
 
-Open TSD with any model. Then run in Command Prompt:
-"C:\tsd-mcp\bridge\TsdBridge\TsdBridge\bin\x64\Debug\net8.0\TsdBridge.exe" list_members
+Returns member counts grouped by type.
 
-You should see a JSON array of all members in the model. If you see `"TSD is not running"` — make sure TSD is open with a model loaded.
+Tool:
+
+```text
+get_tsd_design_summary
+```
+
+Example:
+
+```json
+{
+  "total_members": 2269,
+  "by_type": [
+    {
+      "type": "Beam",
+      "count": 1902
+    },
+    {
+      "type": "Brace",
+      "count": 160
+    },
+    {
+      "type": "Column Base Plate",
+      "count": 125
+    },
+    {
+      "type": "Column",
+      "count": 82
+    }
+  ]
+}
+```
 
 ---
 
-### Step 4 — Connect to Claude Desktop
+## Model Overview
 
-1. Install [Claude Desktop](https://claude.ai/download) if you haven't already
-2. Press **Windows + R**, type `%APPDATA%\Claude` and press Enter
-3. Open `claude_desktop_config.json`
-4. Add the `tsd-mcp` entry inside `mcpServers`:
+Returns:
+
+* Total members
+* Member type counts
+* Section usage summary
+* Material summary
+
+Tool:
+
+```text
+get_tsd_model_overview
+```
+
+Example:
+
+```json
+{
+  "total_members": 2269,
+  "by_type": [...],
+  "by_section": [...],
+  "by_material": [...]
+}
+```
+
+Example output from a real project:
+
+```json
+{
+  "total_members": 2269,
+  "by_type": [
+    {
+      "type": "Beam",
+      "count": 1902
+    },
+    {
+      "type": "Brace",
+      "count": 160
+    },
+    {
+      "type": "Column Base Plate",
+      "count": 125
+    },
+    {
+      "type": "Column",
+      "count": 82
+    }
+  ]
+}
+```
+
+---
+
+## Validation Information
+
+Retrieve model validation information.
+
+Tool:
+
+```text
+get_tsd_validation_errors
+```
+
+---
+
+# Requirements
+
+* Windows PC
+* Tekla Structural Designer 2025 installed and licensed
+* TSD must be running with a model open
+* Node.js (LTS recommended)
+* .NET 8
+* Claude Desktop, ChatGPT Desktop, or another MCP-compatible client
+
+---
+
+# Architecture
+
+```text
+AI Client
+    ↓
+MCP Server (Node.js)
+    ↓
+C# Bridge (.NET 8)
+    ↓
+Tekla Structural Designer Remoting API
+    ↓
+Live TSD Model
+```
+
+The MCP server is written in Node.js.
+
+The bridge is written in C# and communicates directly with Tekla Structural Designer through the official Remoting API.
+
+---
+
+# Installation
+
+## Step 1 — Clone Repository
+
+```bash
+git clone https://github.com/vibhanshu-mishra/tsd-mcp.git
+cd tsd-mcp
+```
+
+---
+
+## Step 2 — Install Node Dependencies
+
+```bash
+npm install
+```
+
+---
+
+## Step 3 — Build the Bridge
+
+Open the bridge project in Visual Studio.
+
+Requirements:
+
+* Visual Studio 2022+
+* .NET 8 SDK
+* TeklaStructuralDesigner.RemotingAPI NuGet package
+
+Build:
+
+```bash
+dotnet build -f net8.0 -r win-x64
+```
+
+The resulting bridge DLL will be located at:
+
+```text
+bridge\ConsoleApp1\ConsoleApp1\bin\Debug\net8.0\win-x64\ConsoleApp1.dll
+```
+
+---
+
+## Step 4 — Test the Bridge
+
+Open Tekla Structural Designer and load any model.
+
+Run:
+
+```bash
+dotnet bridge\ConsoleApp1\ConsoleApp1\bin\Debug\net8.0\win-x64\ConsoleApp1.dll list_members
+```
+
+You should receive JSON output.
+
+If you see:
+
+```json
+{
+  "error": "TSD is not running"
+}
+```
+
+ensure TSD is open and a model is loaded.
+
+---
+
+## Step 5 — Connect to Claude Desktop
+
+Open:
+
+```text
+%APPDATA%\Claude\claude_desktop_config.json
+```
+
+Add:
 
 ```json
 {
   "mcpServers": {
     "tsd-mcp": {
       "command": "node",
-      "args": ["C:\\tsd-mcp\\server\\index.js"]
+      "args": [
+        "C:\\tsd-mcp\\server\\index.js"
+      ]
     }
   }
 }
 ```
 
-5. Save the file
-6. Fully quit Claude Desktop (right-click the system tray icon → Quit)
-7. Reopen Claude Desktop
+Restart Claude Desktop.
 
 ---
 
-### Step 5 — Verify It's Running
+# Available MCP Tools
 
-In Claude Desktop:
-1. Click the **+** button in the chat input
-2. Click **Connectors**
-3. You should see **tsd-mcp** listed as connected
-
-Or go to **Settings → Developer** and confirm tsd-mcp shows as **running**.
-
----
-
-## Example Prompts
-
-Once connected, open TSD with a model and try:
-List all members in my TSD model
-
-Give me a design summary for the open TSD model
-
-How many beams, columns, and braces are in this model?
-
-Are there any validation errors in the open model?
+| Tool                           | Description                                                 |
+| ------------------------------ | ----------------------------------------------------------- |
+| list_tsd_members               | Lists all members and inferred member types                 |
+| list_tsd_members_with_sections | Lists members with section size, section type, and material |
+| get_tsd_design_summary         | Returns member counts grouped by type                       |
+| get_tsd_model_overview         | Returns complete model inventory and section summary        |
+| get_tsd_validation_errors      | Returns validation warnings and errors                      |
 
 ---
 
-## Available Tools
+# Example Prompts
 
-| Tool | Description |
-|---|---|
-| `list_tsd_members` | Lists all members in the open TSD model with their names and inferred types (Beam, Column, Brace, Column Base Plate) |
-| `get_tsd_design_summary` | Returns total member count broken down by type |
-| `get_tsd_validation_errors` | Returns validation errors and warnings from the open TSD model |
+Try asking:
 
----
-
-## Important Notes
-
-**TSD must be running.** The bridge connects to a live TSD process. If TSD is closed or no model is open, all tools will return an error.
-
-**One model at a time.** The bridge connects to the first running TSD instance found. If you have multiple TSD windows open, results may vary.
-
-**x64 only.** The C# bridge must be compiled targeting x64 to match the TSD Remoting API architecture. Building as `Any CPU` will fail at runtime.
-
-**Analysis not required for member listing.** The `list_tsd_members` and `get_tsd_design_summary` tools work on any open model regardless of whether analysis has been run. Utilization ratios and design results (coming in a future update) require analysis to be completed first.
+* List all members in my TSD model
+* Show all member section sizes
+* Give me a design summary
+* Give me a complete model overview
+* What are the most common sections in this model?
+* How many beams, columns, braces, and base plates are there?
+* Are there any validation errors?
 
 ---
 
-## Technical Notes on the TSD Remoting API
+# Technical Notes
 
-A few non-obvious things about how this server connects to TSD, documented for anyone extending it:
+## Connection Method
 
-**1. Connection method.** The bridge uses `ApplicationFactory.GetRunningApplicationsAsync()` to discover running TSD instances — not a named pipe or port. TSD must already be running; the bridge does not launch it.
+The bridge connects to a running TSD instance using:
 
-**2. Document vs. Model.** The API separates `IApplication` → `IDocument` → `IModel`. You must call `GetDocumentAsync()` then `GetModelAsync()` to reach the structural model. Skipping either step returns null.
+```csharp
+ApplicationFactory.GetRunningApplicationsAsync()
+```
 
-**3. Member type inference.** The `IMember` interface exposes `EntityType` which returns a generic `Member` string for all member types. Actual type (Beam/Column/Brace) is inferred from the member name prefix: `B` = Beam, `C` = Column, `BR` = Brace, `CBase` = Column Base Plate. This matches TSD's own auto-naming convention.
+TSD must already be running.
 
-**4. Section names.** `IElementSection` is a property wrapper — the actual section name string is not directly exposed as a named property. Section size extraction is under active development.
-
-**5. Architecture requirement.** The `TeklaStructuralDesigner.RemotingAPI` NuGet package targets AMD64. The C# project must be built as x64 or it will throw an architecture mismatch error at runtime even if it compiles successfully.
-
----
-
-## Roadmap
-
-- [x] Connect to live TSD 2025 instance via Remoting API
-- [x] List all members with inferred type classification
-- [x] Member count summary by type
-- [x] Validation error extraction
-- [ ] Section size per member
-- [ ] Utilization ratios (requires analysis results)
-- [ ] Failing members filter (UC > 1.0)
-- [ ] Solver error extraction
-- [ ] Load combination listing
-- [ ] Export member schedule to Excel
+The bridge does not launch TSD.
 
 ---
 
-## Contributing
+## Object Hierarchy
 
-Pull requests are welcome. If you use TSD and have ideas for new tools, open an issue and let's discuss.
+The Remoting API follows:
+
+```text
+Application
+    ↓
+Document
+    ↓
+Model
+    ↓
+Member
+    ↓
+Span
+    ↓
+ElementSection
+    ↓
+PhysicalSection
+```
+
+Section sizes are extracted from:
+
+```text
+PhysicalSection.LongName
+```
+
+Example:
+
+```text
+W 14x193
+HSS 10x10x1/2
+W 24x76
+```
 
 ---
 
-## About
+## Member Type Classification
 
-Built by **Vibhanshu Mishra, PE** — Structural Engineer at AG&E Structural Engineers, Austin TX.
+The Remoting API exposes all members simply as "Member".
 
-Specializing in steel and mission-critical structures. Building AI tools for a niche where none existed.
+Member types are inferred from TSD naming conventions:
+
+| Prefix | Type              |
+| ------ | ----------------- |
+| B      | Beam              |
+| C      | Column            |
+| BR     | Brace             |
+| CBase  | Column Base Plate |
 
 ---
 
-## License
+## x64 Requirement
 
-MIT License — free to use, modify, and share.
+The Tekla Structural Designer Remoting API targets AMD64.
+
+The bridge must be compiled for x64.
+
+Building as Any CPU may compile successfully but can fail at runtime.
+
+---
+
+# Roadmap
+
+## Completed
+
+* [x] Connect to live TSD 2025 instance
+* [x] Member discovery
+* [x] Member classification
+* [x] Design summary
+* [x] Validation extraction
+* [x] Section size extraction
+* [x] Section type extraction
+* [x] Material type extraction
+* [x] Model overview reporting
+
+## Planned
+
+* [ ] Members by section
+* [ ] Members by type
+* [ ] Utilization ratios
+* [ ] Failing member detection
+* [ ] Solver error extraction
+* [ ] Load combination listing
+* [ ] Design result extraction
+* [ ] Excel export
+
+---
+
+# About
+
+Built by **Vibhanshu Mishra, PE**
+
+Structural Engineer specializing in steel and mission-critical structures.
+
+Building AI tools for structural engineers.
+
+---
+
+# License
+
+MIT License
+
+Free to use, modify, and distribute.
