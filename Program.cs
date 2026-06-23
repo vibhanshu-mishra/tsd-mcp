@@ -196,8 +196,455 @@ try
                 })
                 .OrderByDescending(x => x.count)
         };
-        
+
         Console.WriteLine(JsonSerializer.Serialize(overview));
+    }
+    else if (command == "get_top_utilized_members")
+    {
+        var members = await model.GetMembersAsync(null);
+        var results = new List<object>();
+
+        foreach (var m in members)
+        {
+            try
+            {
+                var spans = await m.GetSpanAsync(null);
+
+                foreach (var span in spans)
+                {
+                    var checkResults = span.GetType()
+                        .GetProperty("CheckResults")?
+                        .GetValue(span);
+
+                    var valueEnumerable = checkResults?
+                        .GetType()
+                        .GetProperty("Value")?
+                        .GetValue(checkResults) as System.Collections.IEnumerable;
+
+                    if (valueEnumerable == null)
+                        continue;
+
+                    foreach (var item in valueEnumerable)
+                    {
+                        var checkType = item.GetType()
+                            .GetProperty("Key")?
+                            .GetValue(item)?
+                            .ToString();
+
+                        var valueWrapper = item.GetType()
+                            .GetProperty("Value")?
+                            .GetValue(item);
+
+                        var checkResult = valueWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType()
+                            .GetProperty("CheckStatus")?
+                            .GetValue(checkResult);
+
+                        var ratioWrapper = checkResult.GetType()
+                            .GetProperty("UtilizationRatio")?
+                            .GetValue(checkResult);
+
+                        var status = statusWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(statusWrapper)?
+                            .ToString();
+
+                        var ratioObj = ratioWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(ratioWrapper);
+
+                        double ratio = 0;
+
+                        if (ratioObj != null)
+                            ratio = Convert.ToDouble(ratioObj);
+
+                        string section = "Unknown";
+
+                        try
+                        {
+                            var physicalSection = GetPhysicalSection(span);
+
+                            section =
+                                GetPropertyValue(physicalSection, "LongName")
+                                ?? GetPropertyValue(physicalSection, "ShortName")
+                                ?? "Unknown";
+                        }
+                        catch
+                        {
+                        }
+
+                        results.Add(new
+                        {
+                            member = m.Name,
+                            type = InferMemberType(m.Name),
+                            section,
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = ratio
+                        });
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        var top = results
+            .OrderByDescending(x =>
+                (double)x.GetType()
+                    .GetProperty("utilization_ratio")!
+                    .GetValue(x)!)
+            .Take(25);
+
+        Console.WriteLine(JsonSerializer.Serialize(top));
+    }
+    else if (command == "get_failing_members")
+    {
+        var members = await model.GetMembersAsync(null);
+        var results = new List<object>();
+
+        foreach (var m in members)
+        {
+            try
+            {
+                var spans = await m.GetSpanAsync(null);
+
+                foreach (var span in spans)
+                {
+                    var checkResults = span.GetType()
+                        .GetProperty("CheckResults")?
+                        .GetValue(span);
+
+                    var valueEnumerable = checkResults?
+                        .GetType()
+                        .GetProperty("Value")?
+                        .GetValue(checkResults) as System.Collections.IEnumerable;
+
+                    if (valueEnumerable == null)
+                        continue;
+
+                    foreach (var item in valueEnumerable)
+                    {
+                        var checkType = item.GetType()
+                            .GetProperty("Key")?
+                            .GetValue(item)?
+                            .ToString();
+
+                        var valueWrapper = item.GetType()
+                            .GetProperty("Value")?
+                            .GetValue(item);
+
+                        var checkResult = valueWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType()
+                            .GetProperty("CheckStatus")?
+                            .GetValue(checkResult);
+
+                        var ratioWrapper = checkResult.GetType()
+                            .GetProperty("UtilizationRatio")?
+                            .GetValue(checkResult);
+
+                        var status = statusWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(statusWrapper)?
+                            .ToString();
+
+                        var ratioObj = ratioWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(ratioWrapper);
+
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                        if (ratio < 1.0)
+                            continue;
+
+                        string section = "Unknown";
+
+                        try
+                        {
+                            var physicalSection = GetPhysicalSection(span);
+
+                            section =
+                                GetPropertyValue(physicalSection, "LongName")
+                                ?? GetPropertyValue(physicalSection, "ShortName")
+                                ?? "Unknown";
+                        }
+                        catch
+                        {
+                        }
+
+                        results.Add(new
+                        {
+                            member = m.Name,
+                            type = InferMemberType(m.Name),
+                            section,
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = ratio
+                        });
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        var failing = results
+            .OrderByDescending(x =>
+                (double)x.GetType()
+                    .GetProperty("utilization_ratio")!
+                    .GetValue(x)!);
+
+        Console.WriteLine(JsonSerializer.Serialize(failing));
+    }
+    else if (command == "get_members_near_limit")
+    {
+        var members = await model.GetMembersAsync(null);
+        var results = new List<object>();
+
+        foreach (var m in members)
+        {
+            try
+            {
+                var spans = await m.GetSpanAsync(null);
+
+                foreach (var span in spans)
+                {
+                    var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                    var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+                    if (valueEnumerable == null)
+                        continue;
+
+                    foreach (var item in valueEnumerable)
+                    {
+                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
+                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                        if (ratio < 0.90 || ratio >= 1.0)
+                            continue;
+
+                        string section = "Unknown";
+
+                        try
+                        {
+                            var physicalSection = GetPhysicalSection(span);
+
+                            section =
+                                GetPropertyValue(physicalSection, "LongName")
+                                ?? GetPropertyValue(physicalSection, "ShortName")
+                                ?? "Unknown";
+                        }
+                        catch { }
+
+                        results.Add(new
+                        {
+                            member = m.Name,
+                            type = InferMemberType(m.Name),
+                            section,
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = ratio
+                        });
+                    }
+                }
+            }
+            catch { }
+        }
+
+        var nearLimit = results
+            .OrderByDescending(x =>
+                (double)x.GetType()
+                    .GetProperty("utilization_ratio")!
+                    .GetValue(x)!);
+
+        Console.WriteLine(JsonSerializer.Serialize(nearLimit));
+    }
+    else if (command == "debug_check_results")
+    {
+        var members = await model.GetMembersAsync(null);
+        var m = members.First();
+
+        var spans = await m.GetSpanAsync(null);
+        var span = spans.First();
+
+        var checkResultsProperty = span.GetType().GetProperty("CheckResults");
+        var checkResults = checkResultsProperty?.GetValue(span);
+
+        var props = checkResults?.GetType().GetProperties().Select(p =>
+        {
+            object? value = null;
+            string? error = null;
+
+            try
+            {
+                value = p.GetValue(checkResults);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+            }
+
+            return new
+            {
+                property = p.Name,
+                type = p.PropertyType.FullName,
+                value = value?.ToString(),
+                error
+            };
+        });
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            member = m.Name,
+            span = span.Name,
+            checkResultsType = checkResults?.GetType().FullName,
+            checkResultsString = checkResults?.ToString(),
+            properties = props
+        }));
+    }
+    else if (command == "debug_check_result_values")
+    {
+        var members = await model.GetMembersAsync(null);
+        var m = members.First();
+
+        var spans = await m.GetSpanAsync(null);
+        var span = spans.First();
+
+        var checkResultsProperty = span.GetType().GetProperty("CheckResults");
+        var checkResults = checkResultsProperty?.GetValue(span);
+
+        var valueProperty = checkResults?.GetType().GetProperty("Value");
+        var valueEnumerable = valueProperty?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+        var results = new List<object>();
+
+        if (valueEnumerable != null)
+        {
+            foreach (var item in valueEnumerable)
+            {
+                var itemType = item.GetType();
+
+                var key = itemType.GetProperty("Key")?.GetValue(item);
+                var value = itemType.GetProperty("Value")?.GetValue(item);
+
+                var wrappedValue = value?.GetType().GetProperty("Value")?.GetValue(value);
+
+                var wrappedProps = wrappedValue?.GetType().GetProperties().Select(p =>
+                {
+                    object? propValue = null;
+                    string? error = null;
+
+                    try
+                    {
+                        propValue = p.GetValue(wrappedValue);
+                    }
+                    catch (Exception ex)
+                    {
+                        error = ex.Message;
+                    }
+
+                    return new
+                    {
+                        property = p.Name,
+                        type = p.PropertyType.FullName,
+                        value = propValue?.ToString(),
+                        error
+                    };
+                });
+
+                results.Add(new
+                {
+                    key = key?.ToString(),
+                    valueWrapperType = value?.GetType().FullName,
+                    wrappedValueType = wrappedValue?.GetType().FullName,
+                    wrappedValueString = wrappedValue?.ToString(),
+                    wrappedProperties = wrappedProps
+                });
+            }
+        }
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            member = m.Name,
+            span = span.Name,
+            checkResultsType = checkResults?.GetType().FullName,
+            results
+        }));
+    }
+    else if (command == "debug_check_result_values_resolved")
+    {
+        var members = await model.GetMembersAsync(null);
+        var m = members.First();
+
+        var spans = await m.GetSpanAsync(null);
+        var span = spans.First();
+
+        var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+        var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+        var results = new List<object>();
+
+        if (valueEnumerable != null)
+        {
+            foreach (var item in valueEnumerable)
+            {
+                var key = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                var statusWrapper = checkResult?.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                var ratioWrapper = checkResult?.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
+                var ratio = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                results.Add(new
+                {
+                    check_type = key,
+                    status,
+                    utilization_ratio = ratio
+                });
+            }
+        }
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            member = m.Name,
+            span = span.Name,
+            results
+        }));
     }
     else if (command == "debug_physical_section")
     {
