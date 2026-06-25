@@ -1,6 +1,6 @@
 # TSD MCP Server
 
-> Connect Claude AI to your live Tekla Structural Designer models using the Model Context Protocol (MCP).
+> An AI-powered engineering interface for Tekla Structural Designer. Query, analyse, review, and estimate structural models using natural language through the Model Context Protocol (MCP).
 
 Built by a structural engineer, for structural engineers. This MCP server lets you talk to your open TSD models in plain English — query members, review design status, run steel takeoffs, and estimate material costs without clicking through the TSD interface.
 
@@ -230,6 +230,20 @@ What's the total tonnage?
 
 ---
 
+## Sample Output
+
+```json
+{
+  "member": "B4869",
+  "section": "W 33x130",
+  "material": "Steel",
+  "utilization_ratio": 1.093,
+  "status": "Fail"
+}
+```
+
+---
+
 ## Available Tools
 
 | Tool | Description |
@@ -251,6 +265,19 @@ What's the total tonnage?
 | `get_tsd_takeoff_by_section_type` | Tonnage broken down by W shapes, HSS, angles, and other section types |
 | `get_tsd_heaviest_sections` | Sections contributing the most tonnage to the model |
 | `get_tsd_model_cost_estimate` | Estimated material cost given a cost-per-ton input |
+| `get_tsd_official_material_quantities` | Returns official material quantities directly from Tekla Structural Designer, including total mass, volume, surface area, connectors, reinforcement, and embodied carbon |
+| `get_tsd_load_combinations` | Lists all load combinations including strength/service classification, activity status, and metadata |
+
+
+---
+
+## Current Limitations
+
+- Read-only access
+- Tekla Structural Designer 2025 only
+- Windows only
+- Requires an active TSD session
+- Currently supports one open model at a time
 
 ---
 
@@ -322,12 +349,35 @@ The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Buildin
 - [x] Heaviest sections analysis
 - [x] Material cost estimation
 
-**Planned**
-- [ ] Load combination extraction
+### Phase 1 — Analysis Discovery
+
+- [x] Load combinations
 - [ ] Solver warnings
-- [ ] Member forces and reactions
-- [ ] Governing load combination per member
-- [ ] Excel and CSV export
+- [ ] Analysis status
+
+### Phase 2 — Structural Forces
+
+- [ ] Member forces
+- [ ] Foundation reactions
+- [ ] Governing load combinations
+
+### Phase 3 — Design Intelligence
+
+- [ ] Explain why a member fails
+- [ ] Optimization recommendations
+- [ ] Member design summaries
+
+### Phase 4 — Reporting
+
+- [ ] Excel export
+- [ ] CSV export
+- [ ] PDF reports
+
+### Phase 5 — AI Workflows
+
+- [ ] Automated QA/QC
+- [ ] Design review assistant
+- [ ] Fabrication package generation
 
 ---
 
