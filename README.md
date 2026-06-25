@@ -58,6 +58,28 @@ No file exports. No copy-paste. Claude talks directly to whatever model you have
 
 ---
 
+## Why This Project Exists
+
+Structural engineers spend significant time navigating through menus, reports, and spreadsheets just to answer straightforward questions about a model.
+
+This project brings AI directly into the structural engineering workflow by exposing the Tekla Structural Designer Remoting API through the Model Context Protocol (MCP).
+
+Instead of manually searching through dialogues, engineers can simply ask:
+
+• Which members are failing?
+
+• Show me all W33x130 beams.
+
+• Generate a steel takeoff.
+
+• Estimate the structural steel cost.
+
+• Which sections contribute the most tonnage?
+
+The goal is to make engineering data conversational.
+
+---
+
 ## Requirements
 
 - Windows PC with **Tekla Structural Designer 2025** installed and licensed
