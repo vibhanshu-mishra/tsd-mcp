@@ -195,38 +195,66 @@ Go to **Settings → Developer** and confirm `tsd-mcp` shows as **running**.
 ## Example Prompts
 
 **Model exploration**
+```
 List all members in my TSD model
+```
 
+```
 Show me all braces
-
+```
+```
 Show me all W 33x130 members
-
+```
+```
 Tell me about member B4869
+```
 
 **Design review**
+```
 Which members are failing?
+```
 
+```
 Show me members near failure
+```
 
+```
 Show me the most critical members
+```
 
+```
 Give me a design status summary
+```
 
+```
 Are there any validation errors?
+```
 
 **Steel takeoff**
+```
 Generate a steel takeoff
+```
 
+```
 How many tons of steel are in this model?
+```
 
+```
 How many tons are W-shapes?
+```
 
+```
 Show me the heaviest sections
+```
 
 **Estimating**
+```
 Estimate steel cost at $4200 per ton
+```
 
+```
 What's the total tonnage?
+```
 
 ---
 
