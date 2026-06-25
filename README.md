@@ -4,6 +4,12 @@
 
 Built by a structural engineer, for structural engineers. This MCP server lets you talk to your open TSD models in plain English — query members, review design status, run steel takeoffs, and estimate material costs without clicking through the TSD interface.
 
+![Platform](https://img.shields.io/badge/Platform-Windows-blue)
+![TSD](https://img.shields.io/badge/Tekla%20Structural%20Designer-2025-green)
+![.NET](https://img.shields.io/badge/.NET-8.0-purple)
+![Node.js](https://img.shields.io/badge/Node.js-20+-brightgreen)
+![License](https://img.shields.io/badge/License-MIT-yellow)
+
 ---
 
 ## Demo
