@@ -414,10 +414,4 @@ The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Buildin
 
 Built by **Vibhanshu Mishra, PE** — Structural Engineer at AG&E Structural Engineers, Austin TX.
 
-Specializing in steel and mission-critical structures. Building AI tools for a niche where none existed.
-
----
-
-## License
-
-MIT License — free to use, modify, and share.
+Specialising in steel and mission-critical structures. Building AI tools for a niche where none existed.
