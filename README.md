@@ -15,14 +15,14 @@ Built by a structural engineer, for structural engineers. This MCP server lets y
 
 ## Demo
 
-> "List all members in my TSD model"
-> "Generate a steel takeoff"
-> "Which members are failing?"
-> "Show me the governing forces for B4869"
-> "Which load combination governs this beam?"
-> "Why is this member failing?"
-> "Estimate steel cost at $4200 per ton"
-> "How many tons of W33x130 are in this model?"
+- "List all members in my TSD model"
+- "Generate a steel takeoff"
+- "Which members are failing?"
+- "Show me the governing forces for B4869"
+- "Which load combination governs this beam?"
+- "Why is this member failing?"
+- "Estimate steel cost at $4200 per ton"
+- "How many tons of W33x130 are in this model?"
 
 Once connected, Claude queries your live TSD model and returns results instantly.
 
@@ -79,10 +79,10 @@ Examples include:
 
 The long-term goal is to let engineers ask questions the way they naturally think:
 
-> Why is this member failing?
-> What load combination governs this beam?
-> Which members are most critical?
-> How can I optimize this design?
+- Why is this member failing?
+- What load combination governs this beam?
+- Which members are most critical?
+- How can I optimize this design?
 
 ---
 
@@ -94,15 +94,11 @@ This project brings AI directly into the structural engineering workflow by expo
 
 Instead of manually searching through dialogues, engineers can simply ask:
 
-• Which members are failing?
-
-• Show me all W33x130 beams.
-
-• Generate a steel takeoff.
-
-• Estimate the structural steel cost.
-
-• Which sections contribute the most tonnage?
+- Which members are failing?
+- Show me all W33x130 beams.
+- Generate a steel takeoff.
+- Estimate the structural steel cost.
+- Which sections contribute the most tonnage?
 
 The goal is to make engineering data conversational.
 
