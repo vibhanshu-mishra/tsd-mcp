@@ -118,19 +118,27 @@ The goal is to make engineering data conversational.
 
 ## Architecture
 
-Claude Desktop
-        │
-        ▼
-Node.js MCP Server
-        │
-        ▼
-C# Bridge (.NET 8)
-        │
-        ▼
-Tekla Structural Designer Remoting API
-        │
-        ▼
-Open TSD Model
+```text
+┌────────────────────────────┐
+│      Claude Desktop        │
+└─────────────┬──────────────┘
+              │ MCP
+              ▼
+┌────────────────────────────┐
+│     Node.js MCP Server     │
+└─────────────┬──────────────┘
+              │ subprocess
+              ▼
+┌────────────────────────────┐
+│     C# Bridge (.NET 8)     │
+└─────────────┬──────────────┘
+              │ Remoting API
+              ▼
+┌────────────────────────────┐
+│ Tekla Structural Designer  │
+│      2025 (Live Model)     │
+└────────────────────────────┘
+```
 
 The Node.js MCP server receives tool calls from Claude Desktop and passes commands to the C# bridge as a subprocess. The bridge connects to the running TSD instance via the official Remoting API and returns JSON results.
 
