@@ -2,7 +2,7 @@
 
 > An AI-powered engineering interface for Tekla Structural Designer. Query, analyse, review, and estimate structural models using natural language through the Model Context Protocol (MCP).
 
-Built by a structural engineer, for structural engineers. This MCP server lets you talk to your open TSD models in plain English — query members, review design status, run steel takeoffs, and estimate material costs without clicking through the TSD interface.
+Built by a structural engineer, for structural engineers. This MCP server lets you talk to your open TSD models in plain English — query members, review design status, inspect load combinations, retrieve member forces, generate governing force envelopes, run steel takeoffs, estimate material costs, and interact with your live structural model without leaving Claude.
 
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![TSD](https://img.shields.io/badge/Tekla%20Structural%20Designer-2025-green)
@@ -41,7 +41,7 @@ No file exports. No copy-paste. Claude talks directly to whatever model you have
 **Model exploration**
 - List all members with type classification
 - Filter members by type or section size
-- Inspect individual member details including section, material, and design checks
+- Inspect individual member details, including section, material, and design checks
 - Get a full model overview
 
 **Design review**
@@ -50,12 +50,40 @@ No file exports. No copy-paste. Claude talks directly to whatever model you have
 - Flag members near the limit (0.90 ≤ UC < 1.0)
 - Pull the top utilized members sorted by criticality
 - Get validation errors and design status summaries
+- Retrieve member end forces for any load combination
+- Generate governing force envelopes across active strength load combinations
+- Identify the governing load combination for each force component
+- Get engineering significance for governing axial force, shear, moment, torsion, and deflection
 
 **Steel takeoff and estimating**
 - Generate a full steel takeoff with length, weight per foot, total weight, and total tonnage
 - Break down tonnage by member type, section type, or individual section
 - Identify the heaviest contributing sections
 - Estimate material cost at any cost-per-ton rate
+
+---
+
+## Engineering Intelligence
+
+Unlike a typical API wrapper, this project is designed to expose engineering context—not just raw model data.
+
+Examples include:
+
+- Governing force envelopes instead of individual load case results
+- Engineering significance for governing forces
+- Intelligent member classification
+- Automatic steel takeoffs and cost estimation
+- Design-focused queries in plain English
+
+The long-term goal is to let engineers ask questions the way they naturally think:
+
+> Why is this member failing?
+
+> What load combination governs this beam?
+
+> Which members are most critical?
+
+> How can I optimize this design?
 
 ---
 
@@ -248,6 +276,35 @@ How many tons are W-shapes?
 Show me the heaviest sections
 ```
 
+**Structural Analysis**
+```
+Show me the end forces for member B4869 under load combination 18
+```
+
+```
+Show me the end forces for B4869 under LRFD
+```
+
+```
+Generate the force envelope for member B4869
+```
+
+```
+What is the governing major shear on B4869?
+```
+
+```
+What load combination governs B4869?
+```
+
+```
+Show me the governing torsion on B4869
+```
+
+```
+Generate the force envelope using all load combinations
+```
+
 **Estimating**
 ```
 Estimate steel cost at $4200 per ton
@@ -296,7 +353,9 @@ What's the total tonnage?
 | `get_tsd_model_cost_estimate` | Estimated material cost given a cost-per-ton input |
 | `get_tsd_official_material_quantities` | Returns official material quantities directly from Tekla Structural Designer, including total mass, volume, surface area, connectors, reinforcement, and embodied carbon |
 | `get_tsd_load_combinations` | Lists all load combinations including strength/service classification, activity status, and metadata |
-
+| `get_tsd_load_combinations` | Lists all load combinations including reference index, name, class, factoring type, and active/design status |
+| `get_tsd_member_forces` | Returns end forces for a member under a specified load combination. Supports lookup by reference index, full combination name, or partial name |
+| `get_tsd_member_force_envelope` | Returns the governing force envelope for a member across load combinations, including maximum positive, maximum negative, governing value, governing load combination, position, and engineering significance for axial force, shear, moment, torsion, and deflection. |
 
 ---
 
@@ -377,6 +436,7 @@ The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Buildin
 - [x] Steel takeoff by section, section type, and member type
 - [x] Heaviest sections analysis
 - [x] Material cost estimation
+- [x] Load combination extraction
 
 ### Phase 1 — Analysis Discovery
 
@@ -386,7 +446,8 @@ The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Buildin
 
 ### Phase 2 — Structural Forces
 
-- [ ] Member forces
+- [x] Member forces
+- [x] Member force envelopes 
 - [ ] Foundation reactions
 - [ ] Governing load combinations
 
