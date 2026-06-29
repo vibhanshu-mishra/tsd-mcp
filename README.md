@@ -359,7 +359,6 @@ What's the total tonnage?
 
 - Read-only access
 - Tekla Structural Designer 2025 only
-- Windows only
 - Requires an active TSD session
 - Currently supports one open model at a time
 
