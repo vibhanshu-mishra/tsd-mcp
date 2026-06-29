@@ -15,14 +15,14 @@ Built by a structural engineer, for structural engineers. This MCP server lets y
 
 ## Demo
 
-> *"List all members in my TSD model"*
-> *"Which members are failing design checks?"*
-> *"Show me the top utilized members"*
-> *"Generate a steel takeoff"*
-> *"Estimate steel cost at $4200 per ton"*
-> *"How many tons of HSS are in this model?"*
-> *"Are there any validation errors?"*
-> *"Tell me about member B4869"*
+> "List all members in my TSD model"
+> "Generate a steel takeoff"
+> "Which members are failing?"
+> "Show me the governing forces for B4869"
+> "Which load combination governs this beam?"
+> "Why is this member failing?"
+> "Estimate steel cost at $4200 per ton"
+> "How many tons of W33x130 are in this model?"
 
 Once connected, Claude queries your live TSD model and returns results instantly.
 
@@ -33,6 +33,8 @@ Once connected, Claude queries your live TSD model and returns results instantly
 MCP (Model Context Protocol) is an open standard that lets AI assistants connect to external tools and data sources. This server bridges Claude Desktop and Tekla Structural Designer 2025 via the official Remoting API — giving Claude live read access to your open structural model.
 
 No file exports. No copy-paste. Claude talks directly to whatever model you have open in TSD.
+
+Instead of navigating dozens of dialogs and reports, engineers can simply ask questions in plain English and receive engineering-focused answers in seconds. The vision is not to replace engineering judgment, it is to remove the friction of accessing engineering information.
 
 ---
 
@@ -78,11 +80,8 @@ Examples include:
 The long-term goal is to let engineers ask questions the way they naturally think:
 
 > Why is this member failing?
-
 > What load combination governs this beam?
-
 > Which members are most critical?
-
 > How can I optimize this design?
 
 ---
@@ -122,22 +121,19 @@ The goal is to make engineering data conversational.
 ---
 
 ## Architecture
+
 Claude Desktop
-
-↓ MCP
-
-Node.js MCP Server  (server/index.js)
-
-↓ subprocess
-
-C# Bridge           (bridge/Program.cs)
-
-↓ Remoting API
-
-Tekla Structural Designer 2025
-
-↓
-
+        │
+        ▼
+Node.js MCP Server
+        │
+        ▼
+C# Bridge (.NET 8)
+        │
+        ▼
+Tekla Structural Designer Remoting API
+        │
+        ▼
 Open TSD Model
 
 The Node.js MCP server receives tool calls from Claude Desktop and passes commands to the C# bridge as a subprocess. The bridge connects to the running TSD instance via the official Remoting API and returns JSON results.
@@ -320,11 +316,16 @@ What's the total tonnage?
 
 ```json
 {
-  "member": "B4869",
-  "section": "W 33x130",
-  "material": "Steel",
-  "utilization_ratio": 1.093,
-  "status": "Fail"
+  "member":"B4869",
+
+  "shear_major":{
+      "governing":{
+          "value":739859.7,
+          "combination":"28 LRFD...",
+          "end":"End",
+          "engineering_significance":"Governing major-axis shear. Review member shear capacity and connection shear demand."
+      }
+  }
 }
 ```
 
@@ -352,8 +353,7 @@ What's the total tonnage?
 | `get_tsd_heaviest_sections` | Sections contributing the most tonnage to the model |
 | `get_tsd_model_cost_estimate` | Estimated material cost given a cost-per-ton input |
 | `get_tsd_official_material_quantities` | Returns official material quantities directly from Tekla Structural Designer, including total mass, volume, surface area, connectors, reinforcement, and embodied carbon |
-| `get_tsd_load_combinations` | Lists all load combinations including strength/service classification, activity status, and metadata |
-| `get_tsd_load_combinations` | Lists all load combinations including reference index, name, class, factoring type, and active/design status |
+| `get_tsd_load_combinations` | Lists all load combinations including strength/service classification, activity status, metadata, reference index, name, class, factoring type, and active/design status |
 | `get_tsd_member_forces` | Returns end forces for a member under a specified load combination. Supports lookup by reference index, full combination name, or partial name |
 | `get_tsd_member_force_envelope` | Returns the governing force envelope for a member across load combinations, including maximum positive, maximum negative, governing value, governing load combination, position, and engineering significance for axial force, shear, moment, torsion, and deflection. |
 
@@ -438,13 +438,13 @@ The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Buildin
 - [x] Material cost estimation
 - [x] Load combination extraction
 
-### Phase 1 — Analysis Discovery
+### Phase 1 — Nodel Intelligence
 
 - [x] Load combinations
 - [ ] Solver warnings
 - [ ] Analysis status
 
-### Phase 2 — Structural Forces
+### Phase 2 — Structural Analysis
 
 - [x] Member forces
 - [x] Member force envelopes 
@@ -457,13 +457,13 @@ The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Buildin
 - [ ] Optimization recommendations
 - [ ] Member design summaries
 
-### Phase 4 — Reporting
+### Phase 4 — Engineering Reports
 
 - [ ] Excel export
 - [ ] CSV export
 - [ ] PDF reports
 
-### Phase 5 — AI Workflows
+### Phase 5 — AI Engineering Assistant
 
 - [ ] Automated QA/QC
 - [ ] Design review assistant
@@ -475,4 +475,4 @@ The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Buildin
 
 Built by **Vibhanshu Mishra, PE** — Structural Engineer at AG&E Structural Engineers, Austin TX.
 
-Specialising in steel and mission-critical structures. Building AI tools for a niche where none existed.
+Specialising in steel and mission-critical structures. Building AI-native tools for structural engineers.
