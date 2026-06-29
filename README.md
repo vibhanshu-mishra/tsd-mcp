@@ -1,4 +1,4 @@
-# TSD MCP Server
+# Tekla Structural Designer MCP Server
 
 > An AI-powered engineering interface for Tekla Structural Designer. Query, analyse, review, and estimate structural models using natural language through the Model Context Protocol (MCP).
 
