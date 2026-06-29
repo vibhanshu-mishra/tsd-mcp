@@ -37,6 +37,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
+      name: "get_tsd_official_material_quantities",
+      description: "Get official material quantities reported by TSD, including steel mass, connectors count, volume, surface area, and embodied carbon",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
       name: "list_tsd_members_with_sections",
       description: "List all members in the open TSD model with names, types, and section sizes",
       inputSchema: { type: "object", properties: {} }
@@ -77,6 +82,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
+      name: "get_tsd_load_combinations",
+      description: "List load combinations in the open TSD model with IDs, names, reference indexes, and strength/service status",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
       name: "get_tsd_members_near_limit",
       description: "Get members in the open TSD model with utilization ratio between 0.90 and 1.0",
       inputSchema: { type: "object", properties: {} }
@@ -87,9 +97,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
+      name: "get_tsd_solver_warnings",
+      description: "Get solver warnings and errors for the selected analysis type in the open TSD model",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
       name: "get_tsd_top_utilized_members",
       description: "Get the top utilized members in the open TSD model sorted by utilization ratio descending",
       inputSchema: { type: "object", properties: {} }
+    },
+    {
+      name: "get_tsd_member_forces",
+      description: "Get line element end forces for a specific member under a load combination. The combination can be provided by reference index, full name, or partial name.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          member: {
+            type: "string",
+            description: "Member name, for example B4869"
+          },
+          combination: {
+            type: "string",
+            description: "Load combination reference index, full name, or partial name. Examples: 18, '18 LRFD_{4.1}-1.2D+1.6L+0.5S', or LRFD"
+          }
+        },
+        required: ["member", "combination"]
+      }
     },
     {
       name: "get_tsd_model_cost_estimate",
@@ -132,6 +165,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
          },
          required: ["type"]
        }
+    },
+    {
+      name: "get_tsd_analysis_status",
+      description: "Get the selected analysis type and confirm whether TSD is running with a model open",
+      inputSchema: { type: "object", properties: {} }
+    },
+    {
+      name: "get_tsd_member_force_envelope",
+      description: "Returns the governing force envelope for a member across load combinations, including maximum positive, maximum negative, and governing axial force, shear, moment, torsion, and deflection values.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          member: {
+            type: "string",
+            description: "Member name, for example B4869"
+          },
+          mode: {
+            type: "string",
+            description: "Optional. Use 'active_strength_combinations' (default) or 'all'.",
+            enum: ["active_strength_combinations", "all"]
+          }
+        },
+        required: ["member"]
+      }
     },
     {
       name: "get_tsd_member_details",
@@ -179,6 +236,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     result = runBridge("get_members_by_type", type);
   } else if (name === "get_tsd_validation_errors") {
     result = runBridge("get_validation_errors");
+  } else if (name === "get_tsd_load_combinations") {
+    result = runBridge("get_load_combinations");
   } else if (name === "get_tsd_steel_takeoff") {
     result = runBridge("get_steel_takeoff");
   } else if (name === "get_tsd_takeoff_by_section_type") {
@@ -186,7 +245,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } else if (name === "get_tsd_takeoff_by_member_type") {
     result = runBridge("get_takeoff_by_member_type");
   } else if (name === "get_tsd_heaviest_sections") {
-    result = runBridge("get_heaviest_sections");
+      result = runBridge("get_heaviest_sections");
+  } else if (name === "get_tsd_solver_warnings") {
+      result = runBridge("get_solver_warnings");
+  } else if (name === "get_tsd_official_material_quantities") {
+      result = runBridge("get_official_material_quantities");
+  } else if (name === "get_tsd_analysis_status") {
+      result = runBridge("get_analysis_status");
+  } else if (name === "get_tsd_member_force_envelope") {
+      const member = request.params.arguments?.member;
+      const mode =
+        request.params.arguments?.mode ?? "active_strength_combinations";
+
+      result = runBridge(
+        "get_member_force_envelope",
+        String(member),
+        String(mode)
+      );
+  } else if (name === "get_tsd_member_forces") {
+      const member = request.params.arguments?.member;
+      const combo = request.params.arguments?.combination;
+      result = runBridge("get_member_forces", String(member), String(combo));
   } else if (name === "get_tsd_model_cost_estimate") {
     const costPerTon = request.params.arguments?.cost_per_ton;
     result = runBridge("get_model_cost_estimate", String(costPerTon));
