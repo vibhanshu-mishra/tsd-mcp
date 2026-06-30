@@ -191,6 +191,80 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
+      name: "get_tsd_support_reactions",
+      description: "Returns support/foundation reactions for a specified load combination. Supports optional support filtering and includes engineering summaries.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          combination: {
+            type: "string",
+            description: "Load combination reference index, full name, or partial name. Example: 18 or LRFD"
+          },
+          support: {
+            type: "string",
+            description: "Optional support name or partial support name. Example: SUP B/14"
+          }
+        },
+        required: ["combination"]
+      }
+    },
+    {
+      name: "get_tsd_governing_load_combo",
+      description: "Determines which load combinations govern the response of a member. Returns governing combinations for axial force, shear, bending, torsion, and deflection, plus an overall governing combination summary.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          member: {
+            type: "string",
+            description: "Member name (example: B4869)"
+          },
+          mode: {
+            type: "string",
+            description: "Optional. Use 'active_strength_combinations' (default) or 'all'."
+          }
+        },
+        required: ["member"]
+      }
+    },
+    {
+      name: "get_tsd_member_design_summary",
+      description: "Returns a design summary for a specific member, including section, material, design status, governing utilization, engineering summary, and span-level design checks.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          member: {
+            type: "string",
+            description: "Member name, for example B4869"
+          }
+        },
+        required: ["member"]
+      }
+    },
+    {
+      name: "get_tsd_why_is_member_failing",
+      description: "Explains why a specific member is failing based on TSD design check results, governing utilization, engineering interpretation, and recommended next steps.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          member: {
+            type: "string",
+            description: "Member name, for example B4869"
+          }
+        },
+        required: ["member"]
+      }
+    },
+    {
+      name: "get_tsd_design_dashboard",
+      description:
+         "Returns a project-level design dashboard with model health, utilization distribution, risk distribution, member type breakdown, section statistics, check-type statistics, engineering observations, priorities, and recommended next action.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    },
+    {
       name: "get_tsd_member_details",
       description: "Get section, material, and design check details for a specific TSD member",
       inputSchema: {
@@ -252,25 +326,50 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       result = runBridge("get_official_material_quantities");
   } else if (name === "get_tsd_analysis_status") {
       result = runBridge("get_analysis_status");
+  } else if (name === "get_tsd_design_dashboard") {
+      result = runBridge("get_tsd_design_dashboard");
+  } else if (name === "get_tsd_support_reactions") {
+      const combination = request.params.arguments?.combination;
+      const support = request.params.arguments?.support;
+
+      result = support
+          ? runBridge("get_tsd_support_reactions", String(combination), String(support))
+          : runBridge("get_tsd_support_reactions", String(combination));
   } else if (name === "get_tsd_member_force_envelope") {
       const member = request.params.arguments?.member;
       const mode =
-        request.params.arguments?.mode ?? "active_strength_combinations";
+          request.params.arguments?.mode ?? "active_strength_combinations";
 
       result = runBridge(
-        "get_member_force_envelope",
-        String(member),
-        String(mode)
+          "get_tsd_member_force_envelope",
+          String(member),
+          String(mode)
       );
+  } else if (name === "get_tsd_governing_load_combo") {
+      const member = request.params.arguments?.member;
+      const mode =
+          request.params.arguments?.mode ?? "active_strength_combinations";
+
+      result = runBridge(
+          "get_tsd_governing_load_combo",
+          String(member),
+          String(mode)
+      ); 
   } else if (name === "get_tsd_member_forces") {
       const member = request.params.arguments?.member;
       const combo = request.params.arguments?.combination;
-      result = runBridge("get_member_forces", String(member), String(combo));
+      result = runBridge("get_tsd_member_forces", String(member), String(combo));
+  } else if (name === "get_tsd_member_design_summary") {
+      const member = request.params.arguments?.member;
+      result = runBridge("get_tsd_member_design_summary", String(member));
+  } else if (name === "get_tsd_why_is_member_failing") {
+      const member = request.params.arguments?.member;
+      result = runBridge("get_tsd_why_is_member_failing", String(member));
   } else if (name === "get_tsd_model_cost_estimate") {
-    const costPerTon = request.params.arguments?.cost_per_ton;
-    result = runBridge("get_model_cost_estimate", String(costPerTon));
+      const costPerTon = request.params.arguments?.cost_per_ton;
+      result = runBridge("get_model_cost_estimate", String(costPerTon));
   } else if (name === "get_tsd_design_status_summary") {
-    result = runBridge("get_design_status_summary");
+      result = runBridge("get_design_status_summary");
   } else {
     return { content: [{ type: "text", text: `Unknown tool: ${name}` }] };
   }
