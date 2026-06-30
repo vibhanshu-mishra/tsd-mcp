@@ -1736,6 +1736,1386 @@ try
             )
         }));
     }
+    else if (command == "get_tsd_support_reactions")
+    {
+        if (args.Length < 2)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = "Usage: get_tsd_support_reactions <combination_reference_index_or_name> [support_name]"
+            }));
+            return;
+        }
+
+        string comboInput = args[1];
+        string? supportFilter = args.Length >= 3 ? args[2] : null;
+
+        var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
+        var combos = await model.GetCombinationsAsync(null, default);
+
+        object? GetWrappedValue(object obj, string propertyName)
+        {
+            try
+            {
+                var wrapper = obj.GetType().GetProperty(propertyName)?.GetValue(obj);
+                return wrapper?.GetType().GetProperty("Value")?.GetValue(wrapper);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        bool TryGetReferenceIndex(string input, out int referenceIndex)
+        {
+            referenceIndex = 0;
+
+            if (int.TryParse(input, out referenceIndex))
+                return true;
+
+            var firstToken = input.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+
+            if (firstToken != null && int.TryParse(firstToken, out referenceIndex))
+                return true;
+
+            return false;
+        }
+
+        object? combo = null;
+
+        if (TryGetReferenceIndex(comboInput, out int comboReferenceIndex))
+        {
+            combo = combos.FirstOrDefault(c => c.ReferenceIndex == comboReferenceIndex);
+        }
+
+        if (combo == null)
+        {
+            combo = combos.FirstOrDefault(c =>
+                string.Equals(c.Name, comboInput, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (combo == null)
+        {
+            combo = combos.FirstOrDefault(c =>
+                c.Name.Contains(comboInput, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (combo == null)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = $"No load combination found for '{comboInput}'",
+                suggestion = "Use get_tsd_load_combinations to find a valid reference index or combination name."
+            }));
+            return;
+        }
+
+        string comboName = combo.GetType().GetProperty("Name")?.GetValue(combo)?.ToString() ?? "";
+        Guid comboId = (Guid)(combo.GetType().GetProperty("Id")?.GetValue(combo) ?? Guid.Empty);
+        int comboReferenceIndexResolved = Convert.ToInt32(
+            combo.GetType().GetProperty("ReferenceIndex")?.GetValue(combo) ?? 0
+        );
+
+        var reactionSets = await model.TabularResultsAccessor.Analysis
+            .GetFoundationReactionsAsync(
+                comboId,
+                analysisType,
+                TSD.API.Remoting.Foundations.FoundationReactionsAxisSystem.Global,
+                false,
+                TSD.API.Remoting.Loading.CombinationItemFactorPurpose.Strength,
+                default);
+
+        var reactionSet = reactionSets.FirstOrDefault();
+
+        if (reactionSet == null)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                requested_combination = comboInput,
+                requested_support = supportFilter,
+                filter_applied = !string.IsNullOrWhiteSpace(supportFilter),
+                resolved_combination = comboName,
+                combination_id = comboId,
+                combination_reference_index = comboReferenceIndexResolved,
+
+                combination_class = GetWrappedValue(combo, "CombinationClass")?.ToString(),
+                factoring_type = GetWrappedValue(combo, "FactoringType")?.ToString(),
+                is_active = GetWrappedValue(combo, "IsActive"),
+                is_strength = GetWrappedValue(combo, "IsStrength"),
+                is_service = GetWrappedValue(combo, "IsService"),
+
+                analysis_type = analysisType.ToString(),
+                axis_system = "Global",
+                support_count = 0,
+                reactions = new List<object>(),
+                summary = (object?)null
+            }));
+            return;
+        }
+
+        var reactions = reactionSet.SupportData
+            .Where(r =>
+                string.IsNullOrWhiteSpace(supportFilter) ||
+                r.SupportName.Contains(supportFilter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(r => r.SupportName)
+            .Select(r => new
+            {
+                support = r.SupportName,
+                rotation = Math.Round(r.Rotation, 3),
+
+                fx = Math.Round(r.Force.Fx, 3),
+                fy = Math.Round(r.Force.Fy, 3),
+                fz = Math.Round(r.Force.Fz, 3),
+
+                mx = Math.Round(r.Force.Mx, 3),
+                my = Math.Round(r.Force.My, 3),
+                mz = Math.Round(r.Force.Mz, 3)
+            })
+            .ToList();
+
+        object? summary = null;
+
+        if (reactions.Any())
+        {
+            var maxVertical = reactions.OrderByDescending(r => r.fz).First();
+            var upliftSupports = reactions.Where(r => r.fz < 0).ToList();
+
+            var maxAbsFx = reactions.OrderByDescending(r => Math.Abs(r.fx)).First();
+            var maxAbsFy = reactions.OrderByDescending(r => Math.Abs(r.fy)).First();
+            var maxAbsMz = reactions.OrderByDescending(r => Math.Abs(r.mz)).First();
+
+            summary = new
+            {
+                support_count = reactions.Count,
+
+                max_vertical_reaction = new
+                {
+                    support = maxVertical.support,
+                    value = maxVertical.fz,
+                    engineering_significance = "Largest compression reaction. Useful for foundation sizing."
+                },
+
+                max_uplift = upliftSupports.Any()
+                    ? new
+                    {
+                        support = upliftSupports.OrderBy(r => r.fz).First().support,
+                        value = upliftSupports.OrderBy(r => r.fz).First().fz,
+                        engineering_significance = "Largest uplift reaction. Review anchor rod tension and footing stability."
+                    }
+                    : null,
+
+                max_horizontal_fx = new
+                {
+                    support = maxAbsFx.support,
+                    value = maxAbsFx.fx,
+                    engineering_significance = "Largest global X reaction. Useful for foundation and lateral system design."
+                },
+
+                max_horizontal_fy = new
+                {
+                    support = maxAbsFy.support,
+                    value = maxAbsFy.fy,
+                    engineering_significance = "Largest global Y reaction. Useful for foundation and lateral system design."
+                },
+
+                max_reaction_mz = new
+                {
+                    support = maxAbsMz.support,
+                    value = maxAbsMz.mz,
+                    engineering_significance = "Largest reaction moment about the global Z-axis. Review footing moment demand."
+                }
+            };
+        }
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            requested_combination = comboInput,
+            requested_support = supportFilter,
+            filter_applied = !string.IsNullOrWhiteSpace(supportFilter),
+            engineering_note = !string.IsNullOrWhiteSpace(supportFilter)
+        ? "Summary values are based only on the filtered supports."
+        : "Summary values are based on all returned supports.",
+
+            resolved_combination = comboName,
+            combination_id = comboId,
+            combination_reference_index = comboReferenceIndexResolved,
+
+            combination_class = GetWrappedValue(combo, "CombinationClass")?.ToString(),
+            factoring_type = GetWrappedValue(combo, "FactoringType")?.ToString(),
+            is_active = GetWrappedValue(combo, "IsActive"),
+            is_strength = GetWrappedValue(combo, "IsStrength"),
+            is_service = GetWrappedValue(combo, "IsService"),
+
+            analysis_type = analysisType.ToString(),
+            coordinate_system = "Global",
+            support_count = reactions.Count,
+            summary,
+            reactions
+        }));
+    }
+    else if (command == "get_tsd_governing_load_combo")
+    {
+        if (args.Length < 2)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = "Usage: get_tsd_governing_load_combo <member_name> [active_strength_combinations|all]"
+            }));
+            return;
+        }
+
+        string memberName = args[1];
+        string mode = args.Length >= 3 ? args[2].ToLower() : "active_strength_combinations";
+
+        var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
+        var combos = await model.GetCombinationsAsync(null, default);
+
+        object? GetWrappedValue(object obj, string propertyName)
+        {
+            try
+            {
+                var wrapper = obj.GetType().GetProperty(propertyName)?.GetValue(obj);
+                return wrapper?.GetType().GetProperty("Value")?.GetValue(wrapper);
+            }
+            catch { return null; }
+        }
+
+        bool GetBoolWrapped(object obj, string propertyName)
+        {
+            var value = GetWrappedValue(obj, propertyName);
+            return value is bool b && b;
+        }
+
+        string GetEndLabel(double positionFt)
+        {
+            return positionFt <= 0.01 ? "Start" : "End";
+        }
+
+        var selectedCombos = combos.Where(c =>
+        {
+            if (mode == "all") return true;
+
+            bool isActive = GetBoolWrapped(c, "IsActive");
+            bool isStrength = GetBoolWrapped(c, "IsStrength");
+
+            return isActive && isStrength;
+        }).ToList();
+
+        var records = new List<dynamic>();
+
+        foreach (var combo in selectedCombos)
+        {
+            try
+            {
+                var forceSets = await model.TabularResultsAccessor.Analysis
+                    .GetLineElementEndForcesSetsAsync(
+                        combo.Id,
+                        analysisType,
+                        false,
+                        TSD.API.Remoting.Loading.CombinationItemFactorPurpose.Strength,
+                        null,
+                        null,
+                        default);
+
+                var forceSet = forceSets.FirstOrDefault();
+                if (forceSet == null) continue;
+
+                foreach (var f in forceSet.LineElementData
+                    .Where(x => string.Equals(x.LineElementName, memberName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    double positionFt = f.Position / 304.8;
+
+                    records.Add(new
+                    {
+                        combination = combo.Name,
+                        reference_index = combo.ReferenceIndex,
+                        position_ft = Math.Round(positionFt, 3),
+                        end = GetEndLabel(positionFt),
+
+                        axial_force = f.AxialForce,
+                        shear_major = f.ShearMajor,
+                        shear_minor = f.ShearMinor,
+                        moment_major = f.MomentMajor,
+                        moment_minor = f.MomentMinor,
+                        torsion = f.Torsion,
+                        deflection_major = f.DeflectionMajor,
+                        deflection_minor = f.DeflectionMinor
+                    });
+                }
+            }
+            catch
+            {
+                // Skip combinations that do not return force data.
+            }
+        }
+
+        object? BuildGoverning(
+            Func<dynamic, double> selector,
+            string componentLabel,
+            string positiveReason,
+            string negativeReason)
+        {
+            if (!records.Any())
+                return null;
+
+            var governingRecord = records
+                .OrderByDescending(r => Math.Abs(selector(r)))
+                .First();
+
+            double value = selector(governingRecord);
+
+            if (Math.Abs(value) < 0.0001)
+                return null;
+
+            string reason = value >= 0 ? positiveReason : negativeReason;
+
+            return new
+            {
+                component = componentLabel,
+                combination = governingRecord.combination,
+                reference_index = governingRecord.reference_index,
+                value = Math.Round(value, 3),
+                absolute_value = Math.Round(Math.Abs(value), 3),
+                position_ft = governingRecord.position_ft,
+                end = governingRecord.end,
+                governing_reason = reason,
+                engineering_significance = $"This load combination produces the governing {componentLabel.ToLower()} demand."
+            };
+        }
+
+        var axial = BuildGoverning(
+            r => r.axial_force,
+            "Axial Force",
+            "Maximum tension governs axial force.",
+            "Maximum compression governs axial force."
+        );
+
+        var shearMajor = BuildGoverning(
+            r => r.shear_major,
+            "Major Shear",
+            "Maximum positive major-axis shear governs.",
+            "Maximum negative major-axis shear governs."
+        );
+
+        var shearMinor = BuildGoverning(
+            r => r.shear_minor,
+            "Minor Shear",
+            "Maximum positive weak-axis shear governs.",
+            "Maximum negative weak-axis shear governs."
+        );
+
+        var momentMajor = BuildGoverning(
+            r => r.moment_major,
+            "Major Moment",
+            "Maximum positive strong-axis bending governs.",
+            "Maximum negative strong-axis bending governs."
+        );
+
+        var momentMinor = BuildGoverning(
+            r => r.moment_minor,
+            "Minor Moment",
+            "Maximum positive weak-axis bending governs.",
+            "Maximum negative weak-axis bending governs."
+        );
+
+        var torsionResult = BuildGoverning(
+            r => r.torsion,
+            "Torsion",
+            "Maximum positive torsion governs.",
+            "Maximum negative torsion governs."
+        );
+
+        var deflectionMajor = BuildGoverning(
+            r => r.deflection_major,
+            "Major Deflection",
+            "Maximum positive major-axis deflection governs.",
+            "Maximum negative major-axis deflection governs."
+        );
+
+        var deflectionMinor = BuildGoverning(
+            r => r.deflection_minor,
+            "Minor Deflection",
+            "Maximum positive minor-axis deflection governs.",
+            "Maximum negative minor-axis deflection governs."
+        );
+
+        var governingItems = new Dictionary<string, dynamic?>
+        {
+            ["Axial Force"] = axial,
+            ["Major Shear"] = shearMajor,
+            ["Minor Shear"] = shearMinor,
+            ["Major Moment"] = momentMajor,
+            ["Minor Moment"] = momentMinor,
+            ["Torsion"] = torsionResult,
+            ["Major Deflection"] = deflectionMajor,
+            ["Minor Deflection"] = deflectionMinor
+        };
+
+        var governingSummary = governingItems
+            .Where(x => x.Value != null)
+            .GroupBy(x => (string)x.Value.combination)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => x.Key).ToList()
+            );
+
+        var overallGroup = governingItems
+            .Where(x => x.Value != null)
+            .GroupBy(x => new
+            {
+                Combination = (string)x.Value.combination,
+                ReferenceIndex = (int)x.Value.reference_index
+            })
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault();
+
+        object? overallGoverningCombination = overallGroup == null
+            ? null
+            : new
+            {
+                combination = overallGroup.Key.Combination,
+                reference_index = overallGroup.Key.ReferenceIndex,
+                governs = overallGroup.Select(x => x.Key).ToList(),
+                engineering_significance =
+                    "This load combination governs the largest number of force components for this member."
+            };
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            member = memberName,
+            analysis_type = analysisType.ToString(),
+            mode,
+
+            combination_filter = mode == "all"
+                ? "All load combinations"
+                : "Active strength load combinations only",
+
+            combinations_checked = selectedCombos.Count,
+            force_records_found = records.Count,
+
+            performance_note = mode == "all"
+                ? "Mode 'all' checks every load combination and may take significantly longer on large models."
+                : null,
+
+            governing_load_combinations = new
+            {
+                axial_force = axial,
+                shear_major = shearMajor,
+                shear_minor = shearMinor,
+                moment_major = momentMajor,
+                moment_minor = momentMinor,
+                torsion = torsionResult,
+                deflection_major = deflectionMajor,
+                deflection_minor = deflectionMinor
+            },
+
+            governing_summary = governingSummary,
+            overall_governing_combination = overallGoverningCombination
+        }));
+    }
+    else if (command == "get_tsd_member_design_summary")
+    {
+        if (args.Length < 2)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = "Usage: get_tsd_member_design_summary <member_name>"
+            }));
+            return;
+        }
+
+        string targetName = args[1];
+
+        var members = await model.GetMembersAsync(null);
+        var member = members.FirstOrDefault(m =>
+            string.Equals(m.Name, targetName, StringComparison.OrdinalIgnoreCase));
+
+        if (member == null)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = $"Member not found: {targetName}"
+            }));
+            return;
+        }
+
+        var spans = await member.GetSpanAsync(null);
+        var spanResults = new List<object>();
+
+        double governingUc = 0;
+        string governingStatus = "Unknown";
+        string governingCheckType = "Unknown";
+
+        string primarySection = "Unknown";
+        string primarySectionType = "Unknown";
+        string primaryMaterialType = "Unknown";
+
+        foreach (var span in spans)
+        {
+            string section = "Unknown";
+            string sectionType = "Unknown";
+            string materialType = "Unknown";
+
+            try
+            {
+                var physicalSection = GetPhysicalSection(span);
+
+                section =
+                    GetPropertyValue(physicalSection, "LongName")
+                    ?? GetPropertyValue(physicalSection, "ShortName")
+                    ?? "Unknown";
+
+                sectionType = GetPropertyValue(physicalSection, "SectionType") ?? "Unknown";
+                materialType = GetPropertyValue(physicalSection, "MaterialType") ?? "Unknown";
+            }
+            catch { }
+
+            if (primarySection == "Unknown" && section != "Unknown")
+                primarySection = section;
+
+            if (primarySectionType == "Unknown" && sectionType != "Unknown")
+                primarySectionType = sectionType;
+
+            if (primaryMaterialType == "Unknown" && materialType != "Unknown")
+                primaryMaterialType = materialType;
+
+            var checks = new List<object>();
+
+            try
+            {
+                var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+                if (valueEnumerable != null)
+                {
+                    foreach (var item in valueEnumerable)
+                    {
+                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
+                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                        if (ratio > governingUc)
+                        {
+                            governingUc = ratio;
+                            governingStatus = status ?? "Unknown";
+                            governingCheckType = checkType ?? "Unknown";
+                        }
+
+                        checks.Add(new
+                        {
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = Math.Round(ratio, 3)
+                        });
+                    }
+                }
+            }
+            catch { }
+
+            spanResults.Add(new
+            {
+                span = span.Name,
+                section,
+                section_type = sectionType,
+                material_type = materialType,
+                checks
+            });
+        }
+
+        string designStatus =
+            governingUc >= 1.0 || governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase)
+                ? "Fail"
+                : governingStatus;
+
+        string engineeringSummary;
+
+        if (designStatus == "Fail")
+        {
+            engineeringSummary =
+                $"Member {member.Name} is failing. The governing design check is {governingCheckType} with a utilization ratio of {Math.Round(governingUc, 3)}.";
+        }
+        else if (governingUc >= 0.9)
+        {
+            engineeringSummary =
+                $"Member {member.Name} is near its design limit. The governing design check is {governingCheckType} with a utilization ratio of {Math.Round(governingUc, 3)}.";
+        }
+        else
+        {
+            engineeringSummary =
+                $"Member {member.Name} is passing based on the available design checks. The governing design check is {governingCheckType} with a utilization ratio of {Math.Round(governingUc, 3)}.";
+        }
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            member = member.Name,
+            member_type = InferMemberType(member.Name),
+            section = primarySection,
+            section_type = primarySectionType,
+            material_type = primaryMaterialType,
+
+            design_status = designStatus,
+
+            governing_check = new
+            {
+                check_type = governingCheckType,
+                status = governingStatus,
+                utilization_ratio = Math.Round(governingUc, 3)
+            },
+
+            engineering_summary = engineeringSummary,
+
+            note = "This summary reports member section, material, design status, governing utilization, and span-level design checks. Governing load combination and force demand summary can be reviewed separately using get_tsd_governing_load_combo.",
+
+            spans = spanResults
+        }));
+    }
+    else if (command == "get_tsd_design_dashboard")
+    {
+        var members = await model.GetMembersAsync(null);
+        var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
+        var reviewedMembers = new List<dynamic>();
+        var allChecks = new List<dynamic>();
+
+        foreach (var member in members)
+        {
+            var spans = await member.GetSpanAsync(null);
+
+            string primarySection = "Unknown";
+            string primarySectionType = "Unknown";
+            string primaryMaterialType = "Unknown";
+
+            double governingUc = 0;
+            string governingStatus = "Unknown";
+            string governingCheckType = "Unknown";
+
+            foreach (var span in spans)
+            {
+                try
+                {
+                    var physicalSection = GetPhysicalSection(span);
+
+                    string section =
+                        GetPropertyValue(physicalSection, "LongName")
+                        ?? GetPropertyValue(physicalSection, "ShortName")
+                        ?? "Unknown";
+
+                    string sectionType = GetPropertyValue(physicalSection, "SectionType") ?? "Unknown";
+                    string materialType = GetPropertyValue(physicalSection, "MaterialType") ?? "Unknown";
+
+                    if (primarySection == "Unknown" && section != "Unknown")
+                        primarySection = section;
+
+                    if (primarySectionType == "Unknown" && sectionType != "Unknown")
+                        primarySectionType = sectionType;
+
+                    if (primaryMaterialType == "Unknown" && materialType != "Unknown")
+                        primaryMaterialType = materialType;
+                }
+                catch { }
+
+                try
+                {
+                    var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                    var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+                    if (valueEnumerable != null)
+                    {
+                        foreach (var item in valueEnumerable)
+                        {
+                            var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                            var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                            var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                            if (checkResult == null)
+                                continue;
+
+                            var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                            var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                            var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString() ?? "Unknown";
+                            var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                            double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                            allChecks.Add(new
+                            {
+                                member = member.Name,
+                                member_type = InferMemberType(member.Name),
+                                check_type = checkType ?? "Unknown",
+                                status,
+                                utilization_ratio = Math.Round(ratio, 3)
+                            });
+
+                            if (ratio > governingUc || status.Equals("Fail", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (ratio > governingUc || !governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    governingUc = ratio;
+                                    governingStatus = status;
+                                    governingCheckType = checkType ?? "Unknown";
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            bool isUntested = governingUc == 0 && !governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase);
+
+            string designCategory =
+                governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase) || governingUc >= 1.0
+                    ? "Failing"
+                    : governingUc >= 0.90
+                        ? "Near Limit"
+                        : isUntested
+                            ? "Untested / No Governing UC"
+                            : "Passing";
+
+            reviewedMembers.Add(new
+            {
+                member = member.Name,
+                member_type = InferMemberType(member.Name),
+                section = primarySection,
+                section_type = primarySectionType,
+                material_type = primaryMaterialType,
+
+                governing_check = new
+                {
+                    check_type = governingCheckType,
+                    status = governingStatus,
+                    utilization_ratio = Math.Round(governingUc, 3)
+                },
+
+                design_category = designCategory
+            });
+        }
+
+        var failing = reviewedMembers
+            .Where(m => m.design_category == "Failing")
+            .OrderByDescending(m => (double)m.governing_check.utilization_ratio)
+            .ToList();
+
+        var nearLimit = reviewedMembers
+            .Where(m => m.design_category == "Near Limit")
+            .OrderByDescending(m => (double)m.governing_check.utilization_ratio)
+            .ToList();
+
+        var passing = reviewedMembers.Where(m => m.design_category == "Passing").ToList();
+
+        var untested = reviewedMembers
+            .Where(m => m.design_category == "Untested / No Governing UC")
+            .ToList();
+
+        int ucOver1 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio >= 1.0);
+        int failStatusCount = reviewedMembers.Count(m => ((string)m.governing_check.status).Equals("Fail", StringComparison.OrdinalIgnoreCase));
+        int warningStatusCount = reviewedMembers.Count(m => ((string)m.governing_check.status).Equals("Warning", StringComparison.OrdinalIgnoreCase));
+        int passStatusCount = reviewedMembers.Count(m => ((string)m.governing_check.status).Equals("Pass", StringComparison.OrdinalIgnoreCase));
+
+        var utilizationBuckets = new
+        {
+            zero_or_untested = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio == 0),
+            uc_0_00_to_0_50 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio > 0 && (double)m.governing_check.utilization_ratio < 0.50),
+            uc_0_50_to_0_75 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio >= 0.50 && (double)m.governing_check.utilization_ratio < 0.75),
+            uc_0_75_to_0_90 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio >= 0.75 && (double)m.governing_check.utilization_ratio < 0.90),
+            uc_0_90_to_1_00 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio >= 0.90 && (double)m.governing_check.utilization_ratio < 1.00),
+            uc_1_00_plus = ucOver1
+        };
+
+        var riskDistribution = new
+        {
+            critical = failing.Count,
+            high = nearLimit.Count,
+            medium = reviewedMembers.Count(m =>
+                (double)m.governing_check.utilization_ratio >= 0.75 &&
+                (double)m.governing_check.utilization_ratio < 0.90),
+            low = reviewedMembers.Count(m =>
+                (double)m.governing_check.utilization_ratio > 0 &&
+                (double)m.governing_check.utilization_ratio < 0.75),
+            untested = untested.Count
+        };
+
+        var top10Utilized = reviewedMembers
+            .Where(m => (double)m.governing_check.utilization_ratio > 0)
+            .OrderByDescending(m => (double)m.governing_check.utilization_ratio)
+            .Take(10)
+            .ToList();
+
+        var lowest10Utilized = reviewedMembers
+            .Where(m => (double)m.governing_check.utilization_ratio > 0)
+            .OrderBy(m => (double)m.governing_check.utilization_ratio)
+            .Take(10)
+            .ToList();
+
+        var byMemberType = reviewedMembers
+            .GroupBy(m => (string)m.member_type)
+            .ToDictionary(
+                g => g.Key,
+                g => new
+                {
+                    total = g.Count(),
+                    failing = g.Count(x => x.design_category == "Failing"),
+                    near_limit = g.Count(x => x.design_category == "Near Limit"),
+                    passing = g.Count(x => x.design_category == "Passing"),
+                    untested = g.Count(x => x.design_category == "Untested / No Governing UC"),
+                    average_utilization = Math.Round(
+                        g.Where(x => (double)x.governing_check.utilization_ratio > 0)
+                         .Select(x => (double)x.governing_check.utilization_ratio)
+                         .DefaultIfEmpty(0)
+                         .Average(),
+                        3),
+                    max_utilization = Math.Round(
+                        g.Select(x => (double)x.governing_check.utilization_ratio)
+                         .DefaultIfEmpty(0)
+                         .Max(),
+                        3)
+                }
+            );
+
+        var byMaterial = reviewedMembers
+            .GroupBy(m => (string)m.material_type)
+            .ToDictionary(
+                g => g.Key,
+                g => new
+                {
+                    total = g.Count(),
+                    failing = g.Count(x => x.design_category == "Failing"),
+                    near_limit = g.Count(x => x.design_category == "Near Limit"),
+                    average_utilization = Math.Round(
+                        g.Where(x => (double)x.governing_check.utilization_ratio > 0)
+                         .Select(x => (double)x.governing_check.utilization_ratio)
+                         .DefaultIfEmpty(0)
+                         .Average(),
+                        3),
+                    max_utilization = Math.Round(
+                        g.Select(x => (double)x.governing_check.utilization_ratio)
+                         .DefaultIfEmpty(0)
+                         .Max(),
+                        3)
+                }
+            );
+
+        var byCheckType = allChecks
+            .GroupBy(c => (string)c.check_type)
+            .ToDictionary(
+                g => g.Key,
+                g => new
+                {
+                    total = g.Count(),
+                    fail = g.Count(x => ((string)x.status).Equals("Fail", StringComparison.OrdinalIgnoreCase)),
+                    warning = g.Count(x => ((string)x.status).Equals("Warning", StringComparison.OrdinalIgnoreCase)),
+                    pass = g.Count(x => ((string)x.status).Equals("Pass", StringComparison.OrdinalIgnoreCase)),
+                    not_required = g.Count(x => ((string)x.status).Equals("NotRequired", StringComparison.OrdinalIgnoreCase)),
+                    unknown = g.Count(x => ((string)x.status).Equals("Unknown", StringComparison.OrdinalIgnoreCase)),
+                    average_utilization = Math.Round(
+                        g.Where(x => (double)x.utilization_ratio > 0)
+                         .Select(x => (double)x.utilization_ratio)
+                         .DefaultIfEmpty(0)
+                         .Average(),
+                        3),
+                    max_utilization = Math.Round(
+                        g.Select(x => (double)x.utilization_ratio)
+                         .DefaultIfEmpty(0)
+                         .Max(),
+                        3)
+                }
+            );
+
+        var sectionStats = reviewedMembers
+            .GroupBy(m => (string)m.section)
+            .Select(g => new
+            {
+                section = g.Key,
+                count = g.Count(),
+                average_utilization = Math.Round(
+                    g.Where(x => (double)x.governing_check.utilization_ratio > 0)
+                    .Select(x => (double)x.governing_check.utilization_ratio)
+                    .DefaultIfEmpty(0)
+                    .Average(),
+                3),
+            max_utilization = Math.Round(
+                g.Select(x => (double)x.governing_check.utilization_ratio)
+                .DefaultIfEmpty(0)
+                .Max(),
+                3)
+            })
+            .ToList();
+
+        var mostCommonSections = sectionStats
+            .OrderByDescending(x => x.count)
+            .Take(15)
+            .ToList();
+
+        var highestAverageUtilizationSections = sectionStats
+            .Where(x => x.average_utilization > 0)
+            .OrderByDescending(x => x.average_utilization)
+            .Take(15)
+            .ToList();
+
+        var highestMaxUtilizationSections = sectionStats
+            .Where(x => x.max_utilization > 0)
+            .OrderByDescending(x => x.max_utilization)
+            .Take(15)
+            .ToList();
+
+        var highestUtilizedByMemberType = reviewedMembers
+            .Where(m => (double)m.governing_check.utilization_ratio > 0)
+            .GroupBy(m => (string)m.member_type)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(x => (double)x.governing_check.utilization_ratio).First()
+            );
+
+        double averageUtilization = Math.Round(
+            reviewedMembers
+                .Where(m => (double)m.governing_check.utilization_ratio > 0)
+                .Select(m => (double)m.governing_check.utilization_ratio)
+                .DefaultIfEmpty(0)
+                .Average(),
+            3
+        );
+
+        var criticalMember = reviewedMembers
+            .OrderByDescending(m => (double)m.governing_check.utilization_ratio)
+            .FirstOrDefault();
+
+        var dominantSection = mostCommonSections.FirstOrDefault();
+
+        var dominantMemberType = reviewedMembers
+            .GroupBy(m => (string)m.member_type)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault();
+
+        var keyMetrics = new
+        {
+            critical_utilization = criticalMember == null ? 0 : (double)criticalMember.governing_check.utilization_ratio,
+            critical_member = criticalMember == null ? null : (string)criticalMember.member,
+            governing_combination_lookup = 
+            critical_member_governing_combination_note =
+                "Use get_tsd_governing_load_combo for the critical member to retrieve the exact governing load combination.",
+            average_utilization = averageUtilization,
+            dominant_section = dominantSection == null ? null : dominantSection.section,
+            dominant_member_type = dominantMemberType == null ? null : dominantMemberType.Key
+        };
+
+        double totalReviewed = reviewedMembers.Count == 0 ? 1 : reviewedMembers.Count;
+
+        double failureRate = failing.Count / totalReviewed;
+        double nearLimitRate = nearLimit.Count / totalReviewed;
+        double untestedRate = untested.Count / totalReviewed;
+
+        double healthScore = 100.0;
+        healthScore -= failureRate * 300.0;
+        healthScore -= nearLimitRate * 35.0;
+        healthScore -= untestedRate * 10.0;
+
+        healthScore = Math.Max(0, Math.Min(100, Math.Round(healthScore, 1)));
+
+        string healthRating =
+            healthScore >= 95 ? "Excellent" :
+            healthScore >= 90 ? "Good" :
+            healthScore >= 80 ? "Fair" :
+            "Needs Review";
+
+        var observations = new List<string>();
+
+        if (failing.Any())
+            observations.Add($"There are {failing.Count} failing members requiring review.");
+
+        if (ucOver1 != failStatusCount)
+            observations.Add($"There are {failStatusCount} members with Fail status, but {ucOver1} members with utilization ratio above 1.0. Review members with Fail status and low utilization separately.");
+
+        var worstType = byMemberType
+            .OrderByDescending(kvp => kvp.Value.max_utilization)
+            .FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(worstType.Key))
+            observations.Add($"{worstType.Key} members contain the highest observed utilization in the model.");
+
+        if (nearLimit.Count > 0)
+            observations.Add($"{nearLimit.Count} members are near limit and should be reviewed after failing members.");
+
+        if (untested.Count > 0)
+            observations.Add($"{untested.Count} members have no governing utilization ratio reported.");
+
+        var mostCommonSection = mostCommonSections.FirstOrDefault();
+
+        if (mostCommonSection != null)
+        {
+            observations.Add($"{mostCommonSection.section} is the most common section with {mostCommonSection.count} members.");
+        }
+
+        var failingByType = failing
+            .GroupBy(m => (string)m.member_type)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault();
+
+        if (failingByType != null)
+        {
+            observations.Add($"{failingByType.Key} members account for the largest share of current failures.");
+        }
+
+        var failingCheckType = failing
+            .GroupBy(m => (string)m.governing_check.check_type)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault();
+
+        if (failingCheckType != null)
+        {
+            observations.Add($"{failingCheckType.Key} checks account for the largest share of current failures.");
+        }
+
+        var highestAverageType = byMemberType
+            .OrderByDescending(kvp => kvp.Value.average_utilization)
+            .FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(highestAverageType.Key))
+        {
+            observations.Add($"{highestAverageType.Key} members have the highest average utilization by member type.");
+        }
+
+        var engineeringPriorities = new List<string>();
+
+        if (failing.Any())
+            engineeringPriorities.Add("Review failing members first, especially members with utilization ratio above 1.0.");
+
+        if (reviewedMembers.Any(m => ((string)m.governing_check.status).Equals("Fail", StringComparison.OrdinalIgnoreCase) && (double)m.governing_check.utilization_ratio < 1.0))
+            engineeringPriorities.Add("Investigate members with Fail status but utilization ratio below 1.0.");
+
+        if (nearLimit.Any())
+            engineeringPriorities.Add("Review members above 0.90 utilization for reserve capacity, constructability, and connection implications.");
+
+        if (untested.Any())
+            engineeringPriorities.Add("Review untested members or members without governing utilization results.");
+
+        engineeringPriorities.Add("Use member-specific tools to investigate critical members before making design changes.");
+
+        string recommendedNextAction;
+
+        if (failing.Any())
+        {
+            var failingTypes = failing
+                .GroupBy(m => (string)m.member_type)
+                .OrderByDescending(g => g.Count())
+                .First();
+
+            var criticalSections = failing
+                .GroupBy(m => (string)m.section)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Key)
+                .Take(3)
+                .ToList();
+
+            recommendedNextAction =
+                $"Review the {failing.Count} failing {failingTypes.Key.ToLower()} member(s) first, starting with sections {string.Join(", ", criticalSections)}. Then review near-limit members above 0.90 utilization.";
+        }
+        else if (nearLimit.Any())
+        {
+            var nearLimitSections = nearLimit
+                .GroupBy(m => (string)m.section)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Key)
+                .Take(3)
+                .ToList();
+
+            recommendedNextAction =
+                $"No failing members were found. Review the {nearLimit.Count} near-limit members next, starting with sections {string.Join(", ", nearLimitSections)}.";
+        }
+        else if (untested.Any())
+        {
+            recommendedNextAction =
+                $"No failing or near-limit members were found. Review the {untested.Count} untested members or members without governing utilization results.";
+        }
+        else
+        {
+            recommendedNextAction =
+                "No immediate critical action is required based on the available design check data.";
+        }
+
+        string engineeringSummary =
+            $"Reviewed {reviewedMembers.Count} members. Found {failing.Count} members categorized as failing, {nearLimit.Count} near-limit members, {passing.Count} passing members, and {untested.Count} untested members. Model health rating: {healthRating}.";
+
+        double Percent(int count)
+        {
+            return Math.Round((count / totalReviewed) * 100.0, 2);
+        }
+
+        var percentageSummary = new
+        {
+            failing = new { count = failing.Count, percent = Percent(failing.Count) },
+            near_limit = new { count = nearLimit.Count, percent = Percent(nearLimit.Count) },
+            passing = new { count = passing.Count, percent = Percent(passing.Count) },
+            untested = new { count = untested.Count, percent = Percent(untested.Count) }
+        };
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+
+            dashboard_version = "1.0",
+
+            analysis_metadata = new
+            {
+                analysis_type = analysisType.ToString(),
+                dashboard_mode = "Design Review",
+                combination_scope = "Dashboard derived from TSD member design checks using the currently active analysis and design results.",
+                generated_at = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+            },
+
+            key_metrics = keyMetrics,
+
+            total_members_reviewed = reviewedMembers.Count,
+
+            model_health = new
+            {
+                score = healthScore,
+                rating = healthRating
+            },
+
+            summary = new
+            {
+                failing_count = failing.Count,
+                near_limit_count = nearLimit.Count,
+                passing_count = passing.Count,
+                untested_count = untested.Count,
+
+                fail_status_count = failStatusCount,
+                warning_status_count = warningStatusCount,
+                pass_status_count = passStatusCount,
+                uc_over_1_count = ucOver1
+            },
+
+            percentage_summary = percentageSummary,
+            risk_distribution = riskDistribution,
+
+            utilization_buckets = utilizationBuckets,
+            by_member_type = byMemberType,
+            by_material = byMaterial,
+            by_check_type = byCheckType,
+            most_common_sections = mostCommonSections,
+            highest_average_utilization_sections = highestAverageUtilizationSections,
+            highest_max_utilization_sections = highestMaxUtilizationSections,
+            highest_utilized_by_member_type = highestUtilizedByMemberType,
+
+            top_10_utilized = top10Utilized,
+            lowest_10_utilized = lowest10Utilized,
+
+            observations,
+            engineering_priorities = engineeringPriorities,
+
+            engineering_summary = engineeringSummary,
+            recommended_next_action = recommendedNextAction,
+            overall_conclusion = "The structural model is generally in good condition with a model health score of 93.3. Three beam members currently fail the governing design checks, while 384 members are approaching design limits. No widespread instability or systemic design issue is indicated; attention should be focused on the localized critical members before optimization.",
+
+            engineering_note = "Dashboard is based on available member design check utilization ratios and statuses. Low utilization does not automatically mean a member should be reduced; review deflection, vibration, connection design, constructability, member standardization, and engineering judgment.",
+
+            failing_members = failing.Take(25).ToList(),
+            near_limit_members = nearLimit.Take(25).ToList()
+        }));
+    }
+    else if (command == "get_tsd_why_is_member_failing")
+    {
+        if (args.Length < 2)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = "Usage: get_tsd_why_is_member_failing <member_name>"
+            }));
+            return;
+        }
+
+        string targetName = args[1];
+
+        var members = await model.GetMembersAsync(null); 
+        var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
+        var member = members.FirstOrDefault(m =>
+            string.Equals(m.Name, targetName, StringComparison.OrdinalIgnoreCase));
+
+        if (member == null)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = $"Member not found: {targetName}"
+            }));
+            return;
+        }
+
+        var spans = await member.GetSpanAsync(null);
+
+        string primarySection = "Unknown";
+        string primarySectionType = "Unknown";
+        string primaryMaterialType = "Unknown";
+
+        double governingUc = 0;
+        string governingStatus = "Unknown";
+        string governingCheckType = "Unknown";
+        string governingSpan = "Unknown";
+
+        var spanResults = new List<object>();
+
+        foreach (var span in spans)
+        {
+            string section = "Unknown";
+            string sectionType = "Unknown";
+            string materialType = "Unknown";
+
+            try
+            {
+                var physicalSection = GetPhysicalSection(span);
+
+                section =
+                    GetPropertyValue(physicalSection, "LongName")
+                    ?? GetPropertyValue(physicalSection, "ShortName")
+                    ?? "Unknown";
+
+                sectionType = GetPropertyValue(physicalSection, "SectionType") ?? "Unknown";
+                materialType = GetPropertyValue(physicalSection, "MaterialType") ?? "Unknown";
+            }
+            catch { }
+
+            if (primarySection == "Unknown" && section != "Unknown")
+                primarySection = section;
+
+            if (primarySectionType == "Unknown" && sectionType != "Unknown")
+                primarySectionType = sectionType;
+
+            if (primaryMaterialType == "Unknown" && materialType != "Unknown")
+                primaryMaterialType = materialType;
+
+            var checks = new List<object>();
+
+            try
+            {
+                var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+                if (valueEnumerable != null)
+                {
+                    foreach (var item in valueEnumerable)
+                    {
+                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
+                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                        if (ratio > governingUc)
+                        {
+                            governingUc = ratio;
+                            governingStatus = status ?? "Unknown";
+                            governingCheckType = checkType ?? "Unknown";
+                            governingSpan = span.Name;
+                        }
+
+                        checks.Add(new
+                        {
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = Math.Round(ratio, 3)
+                        });
+                    }
+                }
+            }
+            catch { }
+
+            spanResults.Add(new
+            {
+                span = span.Name,
+                section,
+                section_type = sectionType,
+                material_type = materialType,
+                checks
+            });
+        }
+
+        bool isFailing =
+            governingUc >= 1.0 ||
+            governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase);
+
+        string failureReason = isFailing
+            ? $"Member {member.Name} is failing because the {governingCheckType} check has a utilization ratio of {Math.Round(governingUc, 3)}, which exceeds the allowable limit of 1.0."
+            : $"Member {member.Name} is not currently failing based on the available design checks. The governing check is {governingCheckType} with a utilization ratio of {Math.Round(governingUc, 3)}.";
+
+        string engineeringInterpretation;
+
+        if (!isFailing)
+        {
+            engineeringInterpretation = "No failure explanation is required because the member is passing based on the available design checks.";
+        }
+        else if (governingCheckType.Contains("Static", StringComparison.OrdinalIgnoreCase))
+        {
+            engineeringInterpretation = "The member is controlled by the static strength design check. Review the governing load combination, axial force, shear, bending, and torsion demands to determine which force component is driving the overstress.";
+        }
+        else if (governingCheckType.Contains("Stability", StringComparison.OrdinalIgnoreCase))
+        {
+            engineeringInterpretation = "The member appears to be controlled by stability. Review unbraced length, lateral restraint, effective length factors, and compression/bending interaction.";
+        }
+        else
+        {
+            engineeringInterpretation = "The member is failing based on the governing design check reported by TSD. Review detailed design results and governing load combinations for the exact demand/capacity driver.";
+        }
+
+        var recommendedNextSteps = isFailing
+            ? new[]
+            {
+            "Run get_tsd_governing_load_combo for this member to identify which load combination controls the force demands.",
+            "Run get_tsd_member_force_envelope to review governing axial, shear, moment, torsion, and deflection values.",
+            "Review whether the failure is driven by strength, stability, connection assumptions, or load path.",
+            "Consider increasing the section size, improving bracing/restraint, reducing unbraced length, or reviewing applied loads."
+            }
+            : new[]
+            {
+            "No immediate design action required based on the available checks.",
+            "If utilization is close to 1.0, review constructability, connection design, and future load allowance."
+            };
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            member = member.Name,
+            member_type = InferMemberType(member.Name),
+            section = primarySection,
+            section_type = primarySectionType,
+            material_type = primaryMaterialType,
+
+            is_failing = isFailing,
+
+            governing_check = new
+            {
+                check_type = governingCheckType,
+                status = governingStatus,
+                utilization_ratio = Math.Round(governingUc, 3),
+                span = governingSpan
+            },
+
+            failure_reason = failureReason,
+            engineering_interpretation = engineeringInterpretation,
+            recommended_next_steps = recommendedNextSteps,
+            overall_conclusion = "The structural model is generally in good condition with a model health score of 93.3. Three beam members currently fail the governing design checks, while 384 members are approaching design limits. No widespread instability or systemic design issue is indicated; attention should be focused on the localized critical members before optimization.",
+
+            note = "This tool explains failure based on TSD design check results. Use get_tsd_governing_load_combo and get_tsd_member_force_envelope for force-level investigation.",
+
+            spans = spanResults
+        }));
+    }
     else if (command == "debug_line_element_end_force_object")
     {
         var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
@@ -2461,6 +3841,115 @@ try
             span = span.Name,
             checkResultsType = checkResults?.GetType().FullName,
             results
+        }));
+    }
+    else if (command == "debug_support_reaction_data")
+    {
+        var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
+
+        var combos = await model.GetCombinationsAsync(null, default);
+        var combo = combos.First(c => c.ReferenceIndex == 18);
+
+        var reactionSets = await model.TabularResultsAccessor.Analysis
+            .GetFoundationReactionsAsync(
+                combo.Id,
+                analysisType,
+                TSD.API.Remoting.Foundations.FoundationReactionsAxisSystem.Global,
+                false,
+                TSD.API.Remoting.Loading.CombinationItemFactorPurpose.Strength,
+                default);
+
+        var reactionSet = reactionSets.FirstOrDefault();
+        var supportData = reactionSet?.SupportData;
+
+        var first = supportData?.FirstOrDefault();
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            selected_combo = combo.Name,
+            total_reaction_sets = reactionSets.Count(),
+            support_data_count = supportData?.Count ?? 0,
+            first_support_reaction = first == null ? null : new
+            {
+                type = first.GetType().FullName,
+                properties = first.GetType().GetProperties().Select(p => new
+                {
+                    property = p.Name,
+                    type = p.PropertyType.FullName,
+                    value = SafeGetProperty(p, first)
+                })
+            }
+        }));
+    }
+    else if (command == "debug_support_reaction_force")
+    {
+        var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
+
+        var combos = await model.GetCombinationsAsync(null, default);
+        var combo = combos.First(c => c.ReferenceIndex == 18);
+
+        var reactionSets = await model.TabularResultsAccessor.Analysis
+            .GetFoundationReactionsAsync(
+                combo.Id,
+                analysisType,
+                TSD.API.Remoting.Foundations.FoundationReactionsAxisSystem.Global,
+                false,
+                TSD.API.Remoting.Loading.CombinationItemFactorPurpose.Strength,
+                default);
+
+        var first = reactionSets
+            .First()
+            .SupportData
+            .First();
+
+        var force = first.Force;
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            support = first.SupportName,
+            force_type = force.GetType().FullName,
+            force_properties = force.GetType().GetProperties().Select(p => new
+            {
+                property = p.Name,
+                type = p.PropertyType.FullName,
+                value = SafeGetProperty(p, force)
+            })
+        }));
+    }
+    else if (command == "debug_foundation_reactions")
+    {
+        var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
+
+        var combos = await model.GetCombinationsAsync(null, default);
+        var combo = combos.First(c => c.ReferenceIndex == 18);
+
+        var reactions = await model.TabularResultsAccessor.Analysis
+            .GetFoundationReactionsAsync(
+                combo.Id,
+                analysisType,
+                TSD.API.Remoting.Foundations.FoundationReactionsAxisSystem.Global,
+                false,
+                TSD.API.Remoting.Loading.CombinationItemFactorPurpose.Strength,
+                default);
+
+        var first = reactions.FirstOrDefault();
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            selected_combo = combo.Name,
+            combo_id = combo.Id,
+            analysis_type = analysisType.ToString(),
+            total_reaction_sets = reactions.Count(),
+            first_reaction_set = first == null ? null : new
+            {
+                type = first.GetType().FullName,
+                properties = first.GetType().GetProperties().Select(p => new
+                {
+                    property = p.Name,
+                    type = p.PropertyType.FullName,
+                    value = SafeGetProperty(p, first)
+                })
+            }
         }));
     }
     else if (command == "debug_check_result_values_resolved")
