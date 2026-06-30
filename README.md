@@ -23,6 +23,11 @@ Built by a structural engineer, for structural engineers. This MCP server lets y
 - "Why is this member failing?"
 - "Estimate steel cost at $4200 per ton"
 - "How many tons of W33x130 are in this model?"
+- "Review my model"
+- "Show me the design dashboard"
+- "Show me support reactions for load combination 18"
+- "What support has the largest vertical reaction?"
+- "Give me a design summary for B4869"
 
 Once connected, Claude queries your live TSD model and returns results instantly.
 
@@ -34,7 +39,7 @@ MCP (Model Context Protocol) is an open standard that lets AI assistants connect
 
 No file exports. No copy-paste. Claude talks directly to whatever model you have open in TSD.
 
-Instead of navigating dozens of dialogs and reports, engineers can simply ask questions in plain English and receive engineering-focused answers in seconds. The vision is not to replace engineering judgment, it is to remove the friction of accessing engineering information.
+Instead of navigating dozens of dialogs and reports, engineers can ask questions in plain English and receive engineering-focused answers in seconds. The vision is not to replace engineering judgment; it is to remove the friction of accessing engineering information.
 
 ---
 
@@ -56,6 +61,10 @@ Instead of navigating dozens of dialogs and reports, engineers can simply ask qu
 - Generate governing force envelopes across active strength load combinations
 - Identify the governing load combination for each force component
 - Get engineering significance for governing axial force, shear, moment, torsion, and deflection
+- Generate a project-level design dashboard with model health, risk distribution, section statistics, check-type statistics, observations, priorities, and recommended next action
+- Explain why a specific member is failing
+- Get member-specific design summaries
+- Review support/foundation reactions for any load combination
 
 **Steel takeoff and estimating**
 - Generate a full steel takeoff with length, weight per foot, total weight, and total tonnage
@@ -314,6 +323,31 @@ Estimate steel cost at $4200 per ton
 What's the total tonnage?
 ```
 
+**Design intelligence**
+```
+Review my model
+```
+
+```
+Generate a design dashboard
+```
+
+```
+Why is member B4869 failing?
+```
+
+```
+Give me a design summary for B4869
+```
+
+```
+Show support reactions for load combination 18
+```
+
+```
+Which support has the largest vertical reaction?
+```
+
 ---
 
 ## Sample Output
@@ -360,6 +394,13 @@ What's the total tonnage?
 | `get_tsd_load_combinations` | Lists all load combinations including strength/service classification, activity status, metadata, reference index, name, class, factoring type, and active/design status |
 | `get_tsd_member_forces` | Returns end forces for a member under a specified load combination. Supports lookup by reference index, full combination name, or partial name |
 | `get_tsd_member_force_envelope` | Returns the governing force envelope for a member across load combinations, including maximum positive, maximum negative, governing value, governing load combination, position, and engineering significance for axial force, shear, moment, torsion, and deflection. |
+| `get_tsd_analysis_status` | Returns the selected analysis type and confirms whether TSD is running with a model open |
+| `get_tsd_solver_warnings` | Returns solver/analysis warnings and informational items from the current TSD model |
+| `get_tsd_support_reactions` | Returns support/foundation reactions for a specified load combination, including optional support filtering, reaction summaries, engineering significance, and global coordinate system reactions |
+| `get_tsd_governing_load_combo` | Returns the governing load combination for each force component of a member, plus a governing summary and overall governing combination |
+| `get_tsd_member_design_summary` | Returns section, material, design status, governing utilization, engineering summary, and span-level design checks for a specific member |
+| `get_tsd_why_is_member_failing` | Explains why a member is failing based on TSD design check results, utilization, engineering interpretation, and recommended next steps |
+| `get_tsd_design_dashboard` | Returns a project-level design dashboard with model health, utilization distribution, risk distribution, key metrics, section statistics, check-type statistics, observations, priorities, and recommended next action |
 
 ---
 
@@ -441,24 +482,25 @@ The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Buildin
 - [x] Material cost estimation
 - [x] Load combination extraction
 
-### Phase 1 — Nodel Intelligence
+### Phase 1 — Model Intelligence
 
 - [x] Load combinations
-- [ ] Solver warnings
-- [ ] Analysis status
+- [x] Solver warnings
+- [x] Analysis status
 
 ### Phase 2 — Structural Analysis
 
 - [x] Member forces
-- [x] Member force envelopes 
-- [ ] Foundation reactions
-- [ ] Governing load combinations
+- [x] Member force envelopes
+- [x] Foundation/support reactions
+- [x] Governing load combinations
 
 ### Phase 3 — Design Intelligence
 
-- [ ] Explain why a member fails
+- [x] Explain why a member fails
+- [x] Member design summaries
+- [x] Project-level design dashboard
 - [ ] Optimization recommendations
-- [ ] Member design summaries
 
 ### Phase 4 — Engineering Reports
 
