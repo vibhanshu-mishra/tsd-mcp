@@ -13,26 +13,6 @@ Built by a structural engineer, for structural engineers. This MCP server lets y
 
 ---
 
-## Demo
-
-- "List all members in my TSD model"
-- "Generate a steel takeoff"
-- "Which members are failing?"
-- "Show me the governing forces for B4869"
-- "Which load combination governs this beam?"
-- "Why is this member failing?"
-- "Estimate steel cost at $4200 per ton"
-- "How many tons of W33x130 are in this model?"
-- "Review my model"
-- "Show me the design dashboard"
-- "Show me support reactions for load combination 18"
-- "What support has the largest vertical reaction?"
-- "Give me a design summary for B4869"
-
-Once connected, Claude queries your live TSD model and returns results instantly.
-
----
-
 ## What Is This?
 
 MCP (Model Context Protocol) is an open standard that lets AI assistants connect to external tools and data sources. This server bridges Claude Desktop and Tekla Structural Designer 2025 via the official Remoting API — giving Claude live read access to your open structural model.
@@ -40,22 +20,6 @@ MCP (Model Context Protocol) is an open standard that lets AI assistants connect
 No file exports. No copy-paste. Claude talks directly to whatever model you have open in TSD.
 
 Instead of navigating dozens of dialogs and reports, engineers can ask questions in plain English and receive engineering-focused answers in seconds. The vision is not to replace engineering judgment; it is to remove the friction of accessing engineering information.
-
----
-
-## Design Philosophy
-
-Each MCP tool is designed around an engineering workflow rather than the underlying Tekla API.
-
-Instead of exposing hundreds of low-level properties, tools answer practical engineering questions such as:
-
-- Which members are critical?
-- Why is this member failing?
-- Which load combination governs?
-- What should I review first?
-- Is the overall model healthy?
-
-Whenever possible, the bridge summarizes, classifies, prioritizes, and explains engineering information so AI assistants can reason about structural models more naturally.
 
 ---
 
@@ -90,24 +54,29 @@ Whenever possible, the bridge summarizes, classifies, prioritizes, and explains 
 
 ---
 
-## Engineering Intelligence
+## Engineering-First Design
 
-Unlike a traditional API wrapper, this MCP server does not simply expose raw Tekla Structural Designer objects.
+Unlike a traditional API wrapper, this MCP server is designed around engineering workflows rather than Tekla Structural Designer's object model.
 
-Many tools perform engineering interpretation before returning results, allowing AI assistants to answer engineering questions rather than simply retrieving data.
+Instead of exposing hundreds of low-level properties, each tool answers practical engineering questions such as:
 
-Current engineering intelligence includes:
+- Why is this member failing?
+- Which load combination governs?
+- Which members are critical?
+- What should I review first?
+- Is the overall model healthy?
 
-- Automatic member classification (Beam, Column, Brace, Column Base Plate)
-- Governing force envelope extraction across active strength load combinations
-- Governing load combination identification for axial force, shear, moment, torsion, and deflection
-- Engineering significance for governing force components
-- Design failure interpretation based on governing utilization and design checks
-- Project-level design health assessment
-- Risk distribution based on utilization ranges
-- Automatic identification of critical members, near-limit members, and utilization trends
-- Section statistics including the most common, highest average utilization, and highest maximum utilization
-- Engineering observations and recommended next actions generated from model-wide statistics
+To accomplish this, the bridge performs engineering interpretation before returning results, including:
+
+- Member classification
+- Governing force envelopes
+- Governing load combinations
+- Design failure interpretation
+- Project health assessment
+- Risk analysis
+- Section statistics
+- Engineering observations
+- Recommended next actions
 
 The objective is to expose engineering insight rather than raw software data.
 
@@ -115,19 +84,11 @@ The objective is to expose engineering insight rather than raw software data.
 
 ## Why This Project Exists
 
-Structural engineers spend significant time navigating through menus, reports, and spreadsheets just to answer straightforward questions about a model.
+Structural engineers spend significant time navigating reports and dialogs to answer simple questions about their models.
 
-This project brings AI directly into the structural engineering workflow by exposing the Tekla Structural Designer Remoting API through the Model Context Protocol (MCP).
+This project brings AI directly into Tekla Structural Designer by exposing engineering information through the Model Context Protocol (MCP), allowing engineers to query, review, and understand their models using natural language.
 
-Instead of manually searching through dialogues, engineers can simply ask:
-
-- Which members are failing?
-- Show me all W33x130 beams.
-- Generate a steel takeoff.
-- Estimate the structural steel cost.
-- Which sections contribute the most tonnage?
-
-The goal is to make engineering data conversational.
+The goal is not to replace engineering judgment—it is to make engineering data conversational.
 
 ---
 
@@ -495,54 +456,46 @@ The TSD Remoting API targets AMD64. The bridge must be compiled for x64. Buildin
 
 ## Roadmap
 
-**Completed**
-- [x] Live TSD connection via Remoting API
-- [x] Member listing and type classification
-- [x] Section and material extraction
-- [x] Member filtering by type and section
-- [x] Individual member detail inspection
-- [x] Model overview
-- [x] Validation error extraction
-- [x] Design status summary
-- [x] Utilization ratio extraction
-- [x] Failing members (UC ≥ 1.0)
-- [x] Near-limit members (0.90 ≤ UC < 1.0)
-- [x] Top utilized members
-- [x] Steel takeoff by section, section type, and member type
-- [x] Heaviest sections analysis
-- [x] Material cost estimation
-- [x] Load combination extraction
-
 ### Phase 1 — Model Intelligence
-
-- [x] Load combinations
-- [x] Solver warnings
+- [x] Member discovery
+- [x] Model overview
+- [x] Section & material extraction
+- [x] Validation errors
+- [x] Design status summary
 - [x] Analysis status
+- [x] Solver warnings
+- [x] Load combinations
 
 ### Phase 2 — Structural Analysis
-
-- [x] Member forces
+- [x] Member end forces
 - [x] Member force envelopes
-- [x] Foundation/support reactions
 - [x] Governing load combinations
+- [x] Support reactions
 
 ### Phase 3 — Design Intelligence
-
-- [x] Explain why a member fails
 - [x] Member design summaries
-- [x] Project-level design dashboard
+- [x] Failure diagnostics
+- [x] Project design dashboard
 - [ ] Optimization recommendations
+- [ ] Similar member search
+- [ ] Member comparison
 
-### Phase 4 — Engineering Reports
+### Phase 4 — Quantification
+- [x] Steel takeoff
+- [x] Official material quantities
+- [x] Cost estimation
+- [ ] Concrete takeoff
+- [ ] Rebar summaries
 
+### Phase 5 — Reporting
 - [ ] Excel export
 - [ ] CSV export
 - [ ] PDF reports
 
-### Phase 5 — AI Engineering Assistant
-
+### Phase 6 — AI Engineering Assistant
 - [ ] Automated QA/QC
 - [ ] Design review assistant
+- [ ] Design optimization assistant
 - [ ] Fabrication package generation
 
 ---
