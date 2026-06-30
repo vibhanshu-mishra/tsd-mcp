@@ -385,7 +385,7 @@ Which support has the largest vertical reaction?
 
 ## Current Limitations
 
-- Read-only access
+- Currently operates in read-only mode and does not modify the TSD model.
 - Tekla Structural Designer 2025 only
 - Requires an active TSD session
 - Currently supports one open model at a time
