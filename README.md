@@ -323,7 +323,7 @@ Estimate steel cost at $4200 per ton
 What's the total tonnage?
 ```
 
-**Design intelligence**
+**Design Intelligence**
 ```
 Review my model
 ```
