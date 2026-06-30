@@ -43,6 +43,22 @@ Instead of navigating dozens of dialogs and reports, engineers can ask questions
 
 ---
 
+## Design Philosophy
+
+Each MCP tool is designed around an engineering workflow rather than the underlying Tekla API.
+
+Instead of exposing hundreds of low-level properties, tools answer practical engineering questions such as:
+
+- Which members are critical?
+- Why is this member failing?
+- Which load combination governs?
+- What should I review first?
+- Is the overall model healthy?
+
+Whenever possible, the bridge summarizes, classifies, prioritizes, and explains engineering information so AI assistants can reason about structural models more naturally.
+
+---
+
 ## What You Can Do
 
 **Model exploration**
@@ -76,22 +92,24 @@ Instead of navigating dozens of dialogs and reports, engineers can ask questions
 
 ## Engineering Intelligence
 
-Unlike a typical API wrapper, this project is designed to expose engineering context—not just raw model data.
+Unlike a traditional API wrapper, this MCP server does not simply expose raw Tekla Structural Designer objects.
 
-Examples include:
+Many tools perform engineering interpretation before returning results, allowing AI assistants to answer engineering questions rather than simply retrieving data.
 
-- Governing force envelopes instead of individual load case results
-- Engineering significance for governing forces
-- Intelligent member classification
-- Automatic steel takeoffs and cost estimation
-- Design-focused queries in plain English
+Current engineering intelligence includes:
 
-The long-term goal is to let engineers ask questions the way they naturally think:
+- Automatic member classification (Beam, Column, Brace, Column Base Plate)
+- Governing force envelope extraction across active strength load combinations
+- Governing load combination identification for axial force, shear, moment, torsion, and deflection
+- Engineering significance for governing force components
+- Design failure interpretation based on governing utilization and design checks
+- Project-level design health assessment
+- Risk distribution based on utilization ranges
+- Automatic identification of critical members, near-limit members, and utilization trends
+- Section statistics including the most common, highest average utilization, and highest maximum utilization
+- Engineering observations and recommended next actions generated from model-wide statistics
 
-- Why is this member failing?
-- What load combination governs this beam?
-- Which members are most critical?
-- How can I optimize this design?
+The objective is to expose engineering insight rather than raw software data.
 
 ---
 
@@ -149,7 +167,7 @@ The goal is to make engineering data conversational.
 └────────────────────────────┘
 ```
 
-The Node.js MCP server receives tool calls from Claude Desktop and passes commands to the C# bridge as a subprocess. The bridge connects to the running TSD instance via the official Remoting API and returns JSON results.
+The Node.js MCP server receives tool calls from Claude Desktop and passes commands to the C# bridge as a subprocess. The bridge connects to the running TSD instance via the official Remoting API and returns JSON results. The bridge also performs engineering interpretation, aggregating multiple Remoting API calls into higher-level engineering insights before returning structured JSON to Claude.
 
 ---
 
@@ -410,6 +428,19 @@ Which support has the largest vertical reaction?
 - Tekla Structural Designer 2025 only
 - Requires an active TSD session
 - Currently supports one open model at a time
+
+---
+
+## Engineering Principles
+
+This project follows several core principles:
+
+- Engineering-first rather than API-first
+- Return summarized engineering insights whenever possible
+- Preserve traceability back to Tekla Structural Designer
+- Avoid hiding raw engineering data
+- Keep every result explainable and deterministic
+- Build reusable engineering tools rather than one-off queries
 
 ---
 
