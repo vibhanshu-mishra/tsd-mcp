@@ -1822,6 +1822,870 @@ try
                 .ToList()
         }));
     }
+    else if (command == "get_tsd_optimization_candidates")
+    {
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
+
+        string mode = args.Length >= 2
+            ? args[1].Trim().ToLowerInvariant()
+            : "all";
+
+        double optimizationThreshold = 0.50;
+
+        if (args.Length >= 3)
+        {
+            if (
+                !double.TryParse(
+                    args[2],
+                    out optimizationThreshold
+                )
+            )
+            {
+                Console.WriteLine(JsonSerializer.Serialize(new
+                {
+                    error = "Optimization threshold must be a number.",
+                    usage =
+                        "get_tsd_optimization_candidates [all|failing|underutilized] [maximum_utilization]"
+                }));
+
+                return;
+            }
+        }
+
+        var validModes = new[]
+        {
+        "all",
+        "failing",
+        "underutilized"
+    };
+
+        if (!validModes.Contains(mode))
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = $"Unknown mode: {mode}",
+                valid_modes = validModes,
+                usage =
+                    "get_tsd_optimization_candidates [all|failing|underutilized] [maximum_utilization]"
+            }));
+
+            return;
+        }
+
+        if (
+            optimizationThreshold <= 0 ||
+            optimizationThreshold >= 1
+        )
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error =
+                    "Optimization threshold must be greater than 0 and less than 1."
+            }));
+
+            return;
+        }
+
+        var members = await model.GetMembersAsync(null);
+        var reviewedSpans = new List<dynamic>();
+
+        foreach (var member in members)
+        {
+            try
+            {
+                var spans = await member.GetSpanAsync(null);
+
+                foreach (var span in spans)
+                {
+                    var physicalSection = GetPhysicalSection(span);
+
+                    string section =
+                        GetPropertyValue(
+                            physicalSection,
+                            "LongName"
+                        )
+                        ?? GetPropertyValue(
+                            physicalSection,
+                            "ShortName"
+                        )
+                        ?? "Unknown";
+
+                    string sectionType =
+                        GetPropertyValue(
+                            physicalSection,
+                            "SectionType"
+                        )
+                        ?? "Unknown";
+
+                    string materialType =
+                        GetPropertyValue(
+                            physicalSection,
+                            "MaterialType"
+                        )
+                        ?? "Unknown";
+
+                    double lengthFt = 0;
+                    double weightPerFt = 0;
+                    double currentWeightLb = 0;
+
+                    try
+                    {
+                        lengthFt =
+                            span.Length.Value / MmPerFt;
+
+                        string massString =
+                            GetPropertyValue(
+                                physicalSection,
+                                "Mass"
+                            )
+                            ?? "0";
+
+                        double mass =
+                            Convert.ToDouble(massString);
+
+                        if (
+                            materialType.Equals(
+                                "Steel",
+                                StringComparison.OrdinalIgnoreCase
+                            )
+                        )
+                        {
+                            weightPerFt =
+                                mass * TsdMassToPlf;
+
+                            currentWeightLb =
+                                lengthFt * weightPerFt;
+                        }
+                    }
+                    catch
+                    {
+                        lengthFt = 0;
+                        weightPerFt = 0;
+                        currentWeightLb = 0;
+                    }
+
+                    double governingUc = 0;
+                    string governingStatus = "Unknown";
+                    string governingCheckType = "Unknown";
+
+                    try
+                    {
+                        var checkResults = span
+                            .GetType()
+                            .GetProperty("CheckResults")?
+                            .GetValue(span);
+
+                        var valueEnumerable = checkResults?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(checkResults)
+                            as System.Collections.IEnumerable;
+
+                        if (valueEnumerable != null)
+                        {
+                            foreach (var item in valueEnumerable)
+                            {
+                                string checkType = item
+                                    .GetType()
+                                    .GetProperty("Key")?
+                                    .GetValue(item)?
+                                    .ToString()
+                                    ?? "Unknown";
+
+                                var valueWrapper = item
+                                    .GetType()
+                                    .GetProperty("Value")?
+                                    .GetValue(item);
+
+                                var checkResult = valueWrapper?
+                                    .GetType()
+                                    .GetProperty("Value")?
+                                    .GetValue(valueWrapper);
+
+                                if (checkResult == null)
+                                    continue;
+
+                                var statusWrapper = checkResult
+                                    .GetType()
+                                    .GetProperty("CheckStatus")?
+                                    .GetValue(checkResult);
+
+                                var ratioWrapper = checkResult
+                                    .GetType()
+                                    .GetProperty("UtilizationRatio")?
+                                    .GetValue(checkResult);
+
+                                string status = statusWrapper?
+                                    .GetType()
+                                    .GetProperty("Value")?
+                                    .GetValue(statusWrapper)?
+                                    .ToString()
+                                    ?? "Unknown";
+
+                                var ratioObject = ratioWrapper?
+                                    .GetType()
+                                    .GetProperty("Value")?
+                                    .GetValue(ratioWrapper);
+
+                                double ratio =
+                                    ratioObject != null
+                                        ? Convert.ToDouble(
+                                            ratioObject
+                                        )
+                                        : 0;
+
+                                int newStatusPriority =
+                                    GetCheckStatusPriority(status);
+
+                                int currentStatusPriority =
+                                    GetCheckStatusPriority(governingStatus);
+
+                                bool shouldGovern =
+                                    newStatusPriority > currentStatusPriority
+                                    ||
+                                    (
+                                        newStatusPriority == currentStatusPriority
+                                        &&
+                                        ratio > governingUc
+                                    );
+
+                                if (shouldGovern)
+                                {
+                                    governingUc = ratio;
+                                    governingStatus = status;
+                                    governingCheckType =
+                                        checkType;
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                    }
+
+                    bool isFailing =
+                        IsFailingCheckStatus(governingStatus)
+                        ||
+                        governingUc >= 1.0;
+
+                    bool isWarning =
+                        IsWarningCheckStatus(governingStatus);
+
+                    bool isUntested =
+                        governingUc == 0
+                        &&
+                        GetCheckStatusPriority(governingStatus) == 0;
+
+                    bool isNearLimit =
+                        !isFailing
+                        &&
+                        !isUntested
+                        &&
+                        (
+                            isWarning
+                            ||
+                            governingUc >= 0.90
+                        );
+
+                    bool isUnderutilized =
+                        !isFailing
+                        &&
+                        !isWarning
+                        &&
+                        !isUntested
+                        &&
+                        governingUc < optimizationThreshold;
+
+                    string reviewCategory;
+
+                    if (
+                        governingStatus.Equals(
+                            "Beyond",
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    {
+                        reviewCategory =
+                            "Beyond Limit - Engineering Review Required";
+                    }
+                    else if (isFailing)
+                    {
+                        reviewCategory =
+                            "Strengthening / Failure Review Required";
+                    }
+                    else if (isWarning)
+                    {
+                        reviewCategory =
+                            "Warning - Retain / Review";
+                    }
+                    else if (isNearLimit)
+                    {
+                        reviewCategory =
+                            "Near Limit - Retain / Review";
+                    }
+                    else if (isUnderutilized)
+                    {
+                        reviewCategory =
+                            governingUc < 0.25
+                                ? "High Optimization Potential"
+                                : governingUc < 0.40
+                                    ? "Moderate Optimization Potential"
+                                    : "Low Optimization Potential";
+                    }
+                    else if (isUntested)
+                    {
+                        reviewCategory =
+                            "Untested - Do Not Optimize";
+                    }
+                    else
+                    {
+                        reviewCategory =
+                            "Reasonably Utilized";
+                    }
+
+                    string recommendedAction;
+
+                    if (
+                        governingStatus.Equals(
+                            "Beyond",
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    {
+                        recommendedAction =
+                            "Review the TSD Beyond status and its underlying check before " +
+                            "making any section change. The result may be outside the " +
+                            "applicability or accepted design limits.";
+                    }
+                    else if (isFailing)
+                    {
+                        recommendedAction =
+                            "Review the failed TSD check, section capacity, restraint, " +
+                            "unbraced length, loading, serviceability, and other design " +
+                            "conditions. Rerun analysis and design before accepting changes.";
+                    }
+                    else if (isWarning)
+                    {
+                        recommendedAction =
+                            "Review the TSD warning before considering optimization. " +
+                            "Do not treat this member as a normal passing member based " +
+                            "only on its utilization ratio.";
+                    }
+                    else if (isUnderutilized)
+                    {
+                        recommendedAction =
+                            "Review whether a lighter section could satisfy strength, " +
+                            "stability, deflection, vibration, connection, fire, " +
+                            "constructability, and standardization requirements. " +
+                            "Do not reduce the section without rerunning analysis and design.";
+                    }
+                    else if (isNearLimit)
+                    {
+                        recommendedAction =
+                            "Do not prioritize for weight reduction. Review reserve " +
+                            "capacity, serviceability, connections, and future loading.";
+                    }
+                    else if (isUntested)
+                    {
+                        recommendedAction =
+                            "Obtain valid design results before considering optimization.";
+                    }
+                    else
+                    {
+                        recommendedAction =
+                            "No immediate optimization action recommended.";
+                    }
+
+                    double tenPercentScenarioLb =
+                        isUnderutilized
+                            ? currentWeightLb * 0.10
+                            : 0;
+
+                    double fifteenPercentScenarioLb =
+                        isUnderutilized
+                            ? currentWeightLb * 0.15
+                            : 0;
+
+                    reviewedSpans.Add(new
+                    {
+                        member = member.Name,
+                        member_type =
+                            InferMemberType(member.Name),
+
+                        span = span.Name,
+
+                        section,
+                        normalized_section =
+                            NormalizeSectionName(section),
+
+                        section_type = sectionType,
+                        material_type = materialType,
+
+                        length_ft =
+                            Math.Round(lengthFt, 2),
+
+                        weight_per_ft =
+                            Math.Round(weightPerFt, 2),
+
+                        current_weight_lb =
+                            Math.Round(currentWeightLb, 1),
+
+                        governing_check = new
+                        {
+                            check_type =
+                                governingCheckType,
+
+                            status =
+                                governingStatus,
+
+                            utilization_ratio =
+                                Math.Round(
+                                    governingUc,
+                                    3
+                                ),
+
+                            status_priority =
+                                GetCheckStatusPriority(
+                                    governingStatus
+                                ),
+
+                            status_interpretation =
+                                GetCheckStatusInterpretation(
+                                    governingStatus,
+                                    governingUc
+                                ),
+
+                            status_driven_failure =
+                                IsFailingCheckStatus(
+                                    governingStatus
+                                )
+                                &&
+                                governingUc < 1.0
+                        },
+
+                        is_failing = isFailing,
+                        is_warning = isWarning,
+                        is_near_limit = isNearLimit,
+                        is_underutilized =
+                            isUnderutilized,
+
+                        is_untested = isUntested,
+
+                        review_category =
+                            reviewCategory,
+
+                        recommended_action =
+                            recommendedAction,
+
+                        illustrative_weight_reduction = new
+                        {
+                            ten_percent_lighter_lb =
+                                Math.Round(
+                                    tenPercentScenarioLb,
+                                    1
+                                ),
+
+                            fifteen_percent_lighter_lb =
+                                Math.Round(
+                                    fifteenPercentScenarioLb,
+                                    1
+                                ),
+
+                            note =
+                                isUnderutilized
+                                    ? "These are screening scenarios only, not a validated section replacement."
+                                    : null
+                        }
+                    });
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        var failingCandidates = reviewedSpans
+            .Where(row =>
+                (bool)row.is_failing
+            )
+            .OrderByDescending(row =>
+                (double)row
+                    .governing_check
+                    .utilization_ratio
+            )
+            .ToList();
+
+        var underutilizedCandidates = reviewedSpans
+            .Where(row =>
+                (bool)row.is_underutilized
+            )
+            .OrderBy(row =>
+                (double)row
+                    .governing_check
+                    .utilization_ratio
+            )
+            .ThenByDescending(row =>
+                (double)row.current_weight_lb
+            )
+            .ToList();
+
+        var nearLimitMembers = reviewedSpans
+            .Where(row =>
+                (bool)row.is_near_limit
+            )
+            .OrderByDescending(row =>
+                (double)row
+                    .governing_check
+                    .utilization_ratio
+            )
+            .ToList();
+
+        var untestedMembers = reviewedSpans
+            .Where(row =>
+                (bool)row.is_untested
+            )
+            .ToList();
+
+        var optimizationBySection =
+            underutilizedCandidates
+                .GroupBy(row => new
+                {
+                    Section =
+                        (string)row.normalized_section,
+
+                    MemberType =
+                        (string)row.member_type,
+
+                    MaterialType =
+                        (string)row.material_type
+                })
+                .Select(group =>
+                {
+                    double currentGroupWeightLb =
+                        group.Sum(row =>
+                            (double)row.current_weight_lb
+                        );
+
+                    return new
+                    {
+                        section =
+                            (string)group.First().section,
+
+                        member_type =
+                            group.Key.MemberType,
+
+                        material_type =
+                            group.Key.MaterialType,
+
+                        candidate_span_count =
+                            group.Count(),
+
+                        unique_member_count =
+                            group
+                                .Select(row =>
+                                    (string)row.member
+                                )
+                                .Distinct(
+                                    StringComparer
+                                        .OrdinalIgnoreCase
+                                )
+                                .Count(),
+
+                        average_utilization =
+                            Math.Round(
+                                group
+                                    .Select(row =>
+                                        (double)row
+                                            .governing_check
+                                            .utilization_ratio
+                                    )
+                                    .DefaultIfEmpty(0)
+                                    .Average(),
+                                3
+                            ),
+
+                        maximum_utilization =
+                            Math.Round(
+                                group
+                                    .Select(row =>
+                                        (double)row
+                                            .governing_check
+                                            .utilization_ratio
+                                    )
+                                    .DefaultIfEmpty(0)
+                                    .Max(),
+                                3
+                            ),
+
+                        total_length_ft =
+                            Math.Round(
+                                group.Sum(row =>
+                                    (double)row.length_ft
+                                ),
+                                2
+                            ),
+
+                        current_weight_lb =
+                            Math.Round(
+                                currentGroupWeightLb,
+                                1
+                            ),
+
+                        current_weight_tons =
+                            Math.Round(
+                                currentGroupWeightLb /
+                                2000.0,
+                                2
+                            ),
+
+                        illustrative_10_percent_savings_lb =
+                            Math.Round(
+                                currentGroupWeightLb *
+                                0.10,
+                                1
+                            ),
+
+                        illustrative_15_percent_savings_lb =
+                            Math.Round(
+                                currentGroupWeightLb *
+                                0.15,
+                                1
+                            ),
+
+                        critical_candidate =
+                            group
+                                .OrderByDescending(row =>
+                                    (double)row
+                                        .current_weight_lb
+                                )
+                                .Select(row => new
+                                {
+                                    member =
+                                        (string)row.member,
+
+                                    span =
+                                        (string)row.span,
+
+                                    utilization_ratio =
+                                        (double)row
+                                            .governing_check
+                                            .utilization_ratio,
+
+                                    current_weight_lb =
+                                        (double)row
+                                            .current_weight_lb
+                                })
+                                .FirstOrDefault()
+                    };
+                })
+                .OrderByDescending(group =>
+                    group.current_weight_lb
+                )
+                .ToList();
+
+        var strengtheningBySection =
+            failingCandidates
+                .GroupBy(row => new
+                {
+                    Section =
+                        (string)row.normalized_section,
+
+                    MemberType =
+                        (string)row.member_type
+                })
+                .Select(group => new
+                {
+                    section =
+                        (string)group.First().section,
+
+                    member_type =
+                        group.Key.MemberType,
+
+                    failing_span_count =
+                        group.Count(),
+
+                    unique_member_count =
+                        group
+                            .Select(row =>
+                                (string)row.member
+                            )
+                            .Distinct(
+                                StringComparer
+                                    .OrdinalIgnoreCase
+                            )
+                            .Count(),
+
+                    maximum_utilization =
+                        Math.Round(
+                            group.Max(row =>
+                                (double)row
+                                    .governing_check
+                                    .utilization_ratio
+                            ),
+                            3
+                        ),
+
+                    critical_member =
+                        group
+                            .OrderByDescending(row =>
+                                (double)row
+                                    .governing_check
+                                    .utilization_ratio
+                            )
+                            .Select(row => new
+                            {
+                                member =
+                                    (string)row.member,
+
+                                span =
+                                    (string)row.span,
+
+                                utilization_ratio =
+                                    (double)row
+                                        .governing_check
+                                        .utilization_ratio,
+
+                                check_type =
+                                    (string)row
+                                        .governing_check
+                                        .check_type
+                            })
+                            .FirstOrDefault()
+                })
+                .OrderByDescending(group =>
+                    group.maximum_utilization
+                )
+                .ToList();
+
+        double candidateCurrentWeightLb =
+            underutilizedCandidates.Sum(row =>
+                (double)row.current_weight_lb
+            );
+
+        double tenPercentPotentialLb =
+            candidateCurrentWeightLb * 0.10;
+
+        double fifteenPercentPotentialLb =
+            candidateCurrentWeightLb * 0.15;
+
+        object selectedResults =
+            mode == "failing"
+                ? failingCandidates
+                : mode == "underutilized"
+                    ? underutilizedCandidates
+                    : new
+                    {
+                        failing =
+                            failingCandidates,
+
+                        underutilized =
+                            underutilizedCandidates,
+
+                        near_limit =
+                            nearLimitMembers,
+
+                        untested =
+                            untestedMembers
+                    };
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            tool_version = "1.0",
+
+            mode,
+
+            optimization_threshold =
+                optimizationThreshold,
+
+            engineering_scope = new
+            {
+                purpose =
+                    "Screen members for strengthening review or potential weight optimization.",
+
+                limitation =
+                    "This tool does not select or validate replacement sections. Every proposed design change must be rerun through structural analysis and design checks.",
+
+                exclusions =
+                    "Untested members and members without a governing utilization ratio are not treated as valid optimization candidates."
+            },
+
+            summary = new
+            {
+                total_spans_reviewed =
+                    reviewedSpans.Count,
+
+                failing_candidate_count =
+                    failingCandidates.Count,
+
+                underutilized_candidate_count =
+                    underutilizedCandidates.Count,
+
+                near_limit_count =
+                    nearLimitMembers.Count,
+
+                untested_count =
+                    untestedMembers.Count,
+
+                current_weight_of_underutilized_candidates_lb =
+                    Math.Round(
+                        candidateCurrentWeightLb,
+                        1
+                    ),
+
+                current_weight_of_underutilized_candidates_tons =
+                    Math.Round(
+                        candidateCurrentWeightLb /
+                        2000.0,
+                        2
+                    ),
+
+                illustrative_10_percent_savings_lb =
+                    Math.Round(
+                        tenPercentPotentialLb,
+                        1
+                    ),
+
+                illustrative_10_percent_savings_tons =
+                    Math.Round(
+                        tenPercentPotentialLb /
+                        2000.0,
+                        2
+                    ),
+
+                illustrative_15_percent_savings_lb =
+                    Math.Round(
+                        fifteenPercentPotentialLb,
+                        1
+                    ),
+
+                illustrative_15_percent_savings_tons =
+                    Math.Round(
+                        fifteenPercentPotentialLb /
+                        2000.0,
+                        2
+                    )
+            },
+
+            top_25_strengthening_priorities =
+                failingCandidates
+                    .Take(25)
+                    .ToList(),
+
+            top_25_optimization_priorities =
+                underutilizedCandidates
+                    .Take(25)
+                    .ToList(),
+
+            optimization_by_section =
+                optimizationBySection,
+
+            strengthening_by_section =
+                strengtheningBySection,
+
+            results = selectedResults
+        }));
+    }
     else if (command == "get_members_by_type")
     {
         if (args.Length < 2)
@@ -5328,14 +6192,221 @@ static string? GetPropertyValue(object? obj, string propertyName)
         .ToString();
 }
 
-static string InferMemberType(string name)
+static string InferMemberType(string memberName)
 {
-    if (name.StartsWith("BR")) return "Brace";
-    if (name.StartsWith("CBase")) return "Column Base Plate";
-    if (name.StartsWith("C")) return "Column";
-    if (name.StartsWith("B")) return "Beam";
+    if (string.IsNullOrWhiteSpace(memberName))
+        return "Unknown";
+
+    string name = memberName.Trim();
+
+    if (
+        name.StartsWith(
+            "CBase",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return "Column Base Plate";
+    }
+
+    if (
+        name.StartsWith(
+            "BR",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return "Brace";
+    }
+
+    if (
+        name.StartsWith(
+            "B",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return "Beam";
+    }
+
+    if (
+        name.StartsWith(
+            "C",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return "Column";
+    }
+
+    if (
+        name.StartsWith(
+            "J",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return "Joist";
+    }
+
+    if (
+        name.StartsWith(
+            "SPP",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return "Steel Post";
+    }
 
     return "Unknown";
+}
+
+static int GetCheckStatusPriority(string? status)
+{
+    if (string.IsNullOrWhiteSpace(status))
+        return 0;
+
+    if (
+        status.Equals(
+            "Fail",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return 4;
+    }
+
+    if (
+        status.Equals(
+            "Beyond",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return 3;
+    }
+
+    if (
+        status.Equals(
+            "Warning",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return 2;
+    }
+
+    if (
+        status.Equals(
+            "Pass",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
+static bool IsFailingCheckStatus(string? status)
+{
+    if (string.IsNullOrWhiteSpace(status))
+        return false;
+
+    return
+        status.Equals(
+            "Fail",
+            StringComparison.OrdinalIgnoreCase
+        )
+        ||
+        status.Equals(
+            "Beyond",
+            StringComparison.OrdinalIgnoreCase
+        );
+}
+
+static bool IsWarningCheckStatus(string? status)
+{
+    if (string.IsNullOrWhiteSpace(status))
+        return false;
+
+    return status.Equals(
+        "Warning",
+        StringComparison.OrdinalIgnoreCase
+    );
+}
+
+static string GetCheckStatusInterpretation(
+    string status,
+    double utilizationRatio
+)
+{
+    if (
+        status.Equals(
+            "Fail",
+            StringComparison.OrdinalIgnoreCase
+        ) &&
+        utilizationRatio < 1.0
+    )
+    {
+        return
+            "TSD reported Fail even though utilization is below 1.0. " +
+            "A check condition, limit, serviceability requirement, " +
+            "or other design rule may be governing.";
+    }
+
+    if (
+        status.Equals(
+            "Fail",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return
+            "TSD reported Fail and the governing utilization is " +
+            "at or above 1.0.";
+    }
+
+    if (
+        status.Equals(
+            "Beyond",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return
+            "TSD reported Beyond. The result is outside an accepted " +
+            "design or applicability limit and must not be treated " +
+            "as a passing optimization candidate.";
+    }
+
+    if (
+        status.Equals(
+            "Warning",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return
+            "TSD reported Warning. Retain this member for engineering " +
+            "review instead of treating it as a normal optimization candidate.";
+    }
+
+    if (
+        status.Equals(
+            "Pass",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return
+            "TSD reported Pass.";
+    }
+
+    return
+        "No recognized governing TSD design status was available.";
 }
 
 static object? SafeGetProperty(PropertyInfo p, object obj)
