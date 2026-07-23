@@ -37,11 +37,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
-      name: "get_tsd_official_material_quantities",
-      description: "Get official material quantities reported by TSD, including steel mass, connectors count, volume, surface area, and embodied carbon",
-      inputSchema: { type: "object", properties: {} }
-    },
-    {
       name: "list_tsd_members_with_sections",
       description: "List all members in the open TSD model with names, types, and section sizes",
       inputSchema: { type: "object", properties: {} }
@@ -82,11 +77,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
-      name: "get_tsd_load_combinations",
-      description: "List load combinations in the open TSD model with IDs, names, reference indexes, and strength/service status",
-      inputSchema: { type: "object", properties: {} }
-    },
-    {
       name: "get_tsd_members_near_limit",
       description: "Get members in the open TSD model with utilization ratio between 0.90 and 1.0",
       inputSchema: { type: "object", properties: {} }
@@ -97,32 +87,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
-      name: "get_tsd_solver_warnings",
-      description: "Get solver warnings and errors for the selected analysis type in the open TSD model",
-      inputSchema: { type: "object", properties: {} }
-    },
-    {
       name: "get_tsd_top_utilized_members",
       description: "Get the top utilized members in the open TSD model sorted by utilization ratio descending",
       inputSchema: { type: "object", properties: {} }
-    },
-    {
-      name: "get_tsd_member_forces",
-      description: "Get line element end forces for a specific member under a load combination. The combination can be provided by reference index, full name, or partial name.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          member: {
-            type: "string",
-            description: "Member name, for example B4869"
-          },
-          combination: {
-            type: "string",
-            description: "Load combination reference index, full name, or partial name. Examples: 18, '18 LRFD_{4.1}-1.2D+1.6L+0.5S', or LRFD"
-          }
-        },
-        required: ["member", "combination"]
-      }
     },
     {
       name: "get_tsd_model_cost_estimate",
@@ -165,104 +132,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
          },
          required: ["type"]
        }
-    },
-    {
-      name: "get_tsd_analysis_status",
-      description: "Get the selected analysis type and confirm whether TSD is running with a model open",
-      inputSchema: { type: "object", properties: {} }
-    },
-    {
-      name: "get_tsd_member_force_envelope",
-      description: "Returns the governing force envelope for a member across load combinations, including maximum positive, maximum negative, and governing axial force, shear, moment, torsion, and deflection values.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          member: {
-            type: "string",
-            description: "Member name, for example B4869"
-          },
-          mode: {
-            type: "string",
-            description: "Optional. Use 'active_strength_combinations' (default) or 'all'.",
-            enum: ["active_strength_combinations", "all"]
-          }
-        },
-        required: ["member"]
-      }
-    },
-    {
-      name: "get_tsd_support_reactions",
-      description: "Returns support/foundation reactions for a specified load combination. Supports optional support filtering and includes engineering summaries.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          combination: {
-            type: "string",
-            description: "Load combination reference index, full name, or partial name. Example: 18 or LRFD"
-          },
-          support: {
-            type: "string",
-            description: "Optional support name or partial support name. Example: SUP B/14"
-          }
-        },
-        required: ["combination"]
-      }
-    },
-    {
-      name: "get_tsd_governing_load_combo",
-      description: "Determines which load combinations govern the response of a member. Returns governing combinations for axial force, shear, bending, torsion, and deflection, plus an overall governing combination summary.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          member: {
-            type: "string",
-            description: "Member name (example: B4869)"
-          },
-          mode: {
-            type: "string",
-            description: "Optional. Use 'active_strength_combinations' (default) or 'all'."
-          }
-        },
-        required: ["member"]
-      }
-    },
-    {
-      name: "get_tsd_member_design_summary",
-      description: "Returns a design summary for a specific member, including section, material, design status, governing utilization, engineering summary, and span-level design checks.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          member: {
-            type: "string",
-            description: "Member name, for example B4869"
-          }
-        },
-        required: ["member"]
-      }
-    },
-    {
-      name: "get_tsd_why_is_member_failing",
-      description: "Explains why a specific member is failing based on TSD design check results, governing utilization, engineering interpretation, and recommended next steps.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          member: {
-            type: "string",
-            description: "Member name, for example B4869"
-          }
-        },
-        required: ["member"]
-      }
-    },
-    {
-      name: "get_tsd_design_dashboard",
-      description:
-         "Returns a project-level design dashboard with model health, utilization distribution, risk distribution, member type breakdown, section statistics, check-type statistics, engineering observations, priorities, and recommended next action.",
-      inputSchema: {
-        type: "object",
-        properties: {},
-        required: []
-      }
     },
     {
       name: "get_tsd_member_details",
@@ -310,8 +179,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     result = runBridge("get_members_by_type", type);
   } else if (name === "get_tsd_validation_errors") {
     result = runBridge("get_validation_errors");
-  } else if (name === "get_tsd_load_combinations") {
-    result = runBridge("get_load_combinations");
   } else if (name === "get_tsd_steel_takeoff") {
     result = runBridge("get_steel_takeoff");
   } else if (name === "get_tsd_takeoff_by_section_type") {
@@ -319,57 +186,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } else if (name === "get_tsd_takeoff_by_member_type") {
     result = runBridge("get_takeoff_by_member_type");
   } else if (name === "get_tsd_heaviest_sections") {
-      result = runBridge("get_heaviest_sections");
-  } else if (name === "get_tsd_solver_warnings") {
-      result = runBridge("get_solver_warnings");
-  } else if (name === "get_tsd_official_material_quantities") {
-      result = runBridge("get_official_material_quantities");
-  } else if (name === "get_tsd_analysis_status") {
-      result = runBridge("get_analysis_status");
-  } else if (name === "get_tsd_design_dashboard") {
-      result = runBridge("get_tsd_design_dashboard");
-  } else if (name === "get_tsd_support_reactions") {
-      const combination = request.params.arguments?.combination;
-      const support = request.params.arguments?.support;
-
-      result = support
-          ? runBridge("get_tsd_support_reactions", String(combination), String(support))
-          : runBridge("get_tsd_support_reactions", String(combination));
-  } else if (name === "get_tsd_member_force_envelope") {
-      const member = request.params.arguments?.member;
-      const mode =
-          request.params.arguments?.mode ?? "active_strength_combinations";
-
-      result = runBridge(
-          "get_tsd_member_force_envelope",
-          String(member),
-          String(mode)
-      );
-  } else if (name === "get_tsd_governing_load_combo") {
-      const member = request.params.arguments?.member;
-      const mode =
-          request.params.arguments?.mode ?? "active_strength_combinations";
-
-      result = runBridge(
-          "get_tsd_governing_load_combo",
-          String(member),
-          String(mode)
-      ); 
-  } else if (name === "get_tsd_member_forces") {
-      const member = request.params.arguments?.member;
-      const combo = request.params.arguments?.combination;
-      result = runBridge("get_tsd_member_forces", String(member), String(combo));
-  } else if (name === "get_tsd_member_design_summary") {
-      const member = request.params.arguments?.member;
-      result = runBridge("get_tsd_member_design_summary", String(member));
-  } else if (name === "get_tsd_why_is_member_failing") {
-      const member = request.params.arguments?.member;
-      result = runBridge("get_tsd_why_is_member_failing", String(member));
+    result = runBridge("get_heaviest_sections");
   } else if (name === "get_tsd_model_cost_estimate") {
-      const costPerTon = request.params.arguments?.cost_per_ton;
-      result = runBridge("get_model_cost_estimate", String(costPerTon));
+    const costPerTon = request.params.arguments?.cost_per_ton;
+    result = runBridge("get_model_cost_estimate", String(costPerTon));
   } else if (name === "get_tsd_design_status_summary") {
-      result = runBridge("get_design_status_summary");
+    result = runBridge("get_design_status_summary");
   } else {
     return { content: [{ type: "text", text: `Unknown tool: ${name}` }] };
   }
