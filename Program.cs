@@ -4481,41 +4481,67 @@ try
     {
         if (args.Length < 2)
         {
-            Console.WriteLine(JsonSerializer.Serialize(new
-            {
-                error = "Usage: get_tsd_why_is_member_failing <member_name>"
-            }));
+            Console.WriteLine(
+                JsonSerializer.Serialize(new
+                {
+                    error =
+                        "Usage: get_tsd_why_is_member_failing <member_name>"
+                })
+            );
+
             return;
         }
 
         string targetName = args[1];
 
-        var members = await model.GetMembersAsync(null); 
-        var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
+        var members =
+            await model.GetMembersAsync(null);
+
         var member = members.FirstOrDefault(m =>
-            string.Equals(m.Name, targetName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(
+                m.Name,
+                targetName,
+                StringComparison.OrdinalIgnoreCase
+            )
+        );
 
         if (member == null)
         {
-            Console.WriteLine(JsonSerializer.Serialize(new
-            {
-                error = $"Member not found: {targetName}"
-            }));
+            Console.WriteLine(
+                JsonSerializer.Serialize(new
+                {
+                    error =
+                        $"Member not found: {targetName}"
+                })
+            );
+
             return;
         }
 
-        var spans = await member.GetSpanAsync(null);
+        var analysisType =
+            await model.GetSelectedAnalysisTypeAsync(
+                default
+            );
+
+        var spans =
+            await member.GetSpanAsync(null);
+
+        var spanResults =
+            new List<dynamic>();
 
         string primarySection = "Unknown";
         string primarySectionType = "Unknown";
         string primaryMaterialType = "Unknown";
 
-        double governingUc = 0;
-        string governingStatus = "Unknown";
-        string governingCheckType = "Unknown";
         string governingSpan = "Unknown";
+        string governingCheckType = "Unknown";
+        string governingStatus = "Unknown";
 
-        var spanResults = new List<object>();
+        double governingUc = 0;
+
+        string? governingLoadCombination = null;
+        string? tsdFailureReason = null;
+        string? tsdDescription = null;
 
         foreach (var span in spans)
         {
@@ -4525,150 +4551,601 @@ try
 
             try
             {
-                var physicalSection = GetPhysicalSection(span);
+                var physicalSection =
+                    GetPhysicalSection(span);
 
                 section =
-                    GetPropertyValue(physicalSection, "LongName")
-                    ?? GetPropertyValue(physicalSection, "ShortName")
+                    GetPropertyValue(
+                        physicalSection,
+                        "LongName"
+                    )
+                    ?? GetPropertyValue(
+                        physicalSection,
+                        "ShortName"
+                    )
                     ?? "Unknown";
 
-                sectionType = GetPropertyValue(physicalSection, "SectionType") ?? "Unknown";
-                materialType = GetPropertyValue(physicalSection, "MaterialType") ?? "Unknown";
+                sectionType =
+                    GetPropertyValue(
+                        physicalSection,
+                        "SectionType"
+                    )
+                    ?? "Unknown";
+
+                materialType =
+                    GetPropertyValue(
+                        physicalSection,
+                        "MaterialType"
+                    )
+                    ?? "Unknown";
             }
-            catch { }
-
-            if (primarySection == "Unknown" && section != "Unknown")
-                primarySection = section;
-
-            if (primarySectionType == "Unknown" && sectionType != "Unknown")
-                primarySectionType = sectionType;
-
-            if (primaryMaterialType == "Unknown" && materialType != "Unknown")
-                primaryMaterialType = materialType;
-
-            var checks = new List<object>();
-
-            try
+            catch
             {
-                var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
-                var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
-
-                if (valueEnumerable != null)
-                {
-                    foreach (var item in valueEnumerable)
-                    {
-                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
-                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
-                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
-
-                        if (checkResult == null)
-                            continue;
-
-                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
-                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
-
-                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
-                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
-
-                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
-
-                        if (ratio > governingUc)
-                        {
-                            governingUc = ratio;
-                            governingStatus = status ?? "Unknown";
-                            governingCheckType = checkType ?? "Unknown";
-                            governingSpan = span.Name;
-                        }
-
-                        checks.Add(new
-                        {
-                            check_type = checkType,
-                            status,
-                            utilization_ratio = Math.Round(ratio, 3)
-                        });
-                    }
-                }
             }
-            catch { }
+
+            if (
+                primarySection == "Unknown"
+                &&
+                section != "Unknown"
+            )
+            {
+                primarySection = section;
+            }
+
+            if (
+                primarySectionType == "Unknown"
+                &&
+                sectionType != "Unknown"
+            )
+            {
+                primarySectionType = sectionType;
+            }
+
+            if (
+                primaryMaterialType == "Unknown"
+                &&
+                materialType != "Unknown"
+            )
+            {
+                primaryMaterialType = materialType;
+            }
+
+            var spanGoverning =
+                GetGoverningCheck(span);
+
+            var designChecks =
+                GetDesignChecks(span);
+
+            var detailedGoverningCheck =
+                designChecks
+                    .Where(check =>
+                        check.CheckType.Equals(
+                            spanGoverning.CheckType,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                        &&
+                        check.Status.Equals(
+                            spanGoverning.Status,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    .OrderByDescending(check =>
+                        check.UtilizationRatio
+                    )
+                    .FirstOrDefault();
+
+            int spanPriority =
+                spanGoverning.StatusPriority;
+
+            int currentPriority =
+                GetCheckStatusPriority(
+                    governingStatus
+                );
+
+            bool shouldGovern =
+                spanPriority > currentPriority
+                ||
+                (
+                    spanPriority == currentPriority
+                    &&
+                    spanGoverning.UtilizationRatio
+                        > governingUc
+                );
+
+            if (shouldGovern)
+            {
+                governingSpan =
+                    span.Name;
+
+                governingCheckType =
+                    spanGoverning.CheckType;
+
+                governingStatus =
+                    spanGoverning.Status;
+
+                governingUc =
+                    spanGoverning.UtilizationRatio;
+
+                governingLoadCombination =
+                    detailedGoverningCheck
+                        .LoadCombination;
+
+                tsdFailureReason =
+                    detailedGoverningCheck
+                        .FailureReason;
+
+                tsdDescription =
+                    detailedGoverningCheck
+                        .Description;
+            }
 
             spanResults.Add(new
             {
                 span = span.Name,
+
                 section,
                 section_type = sectionType,
                 material_type = materialType,
-                checks
+
+                governing_check = new
+                {
+                    check_type =
+                        spanGoverning.CheckType,
+
+                    status =
+                        spanGoverning.Status,
+
+                    utilization_ratio =
+                        Math.Round(
+                            spanGoverning
+                                .UtilizationRatio,
+                            3
+                        ),
+
+                    status_priority =
+                        spanGoverning.StatusPriority,
+
+                    is_failing =
+                        spanGoverning.IsFailing,
+
+                    is_warning =
+                        spanGoverning.IsWarning,
+
+                    is_untested =
+                        spanGoverning.IsUntested,
+
+                    status_driven_failure =
+                        spanGoverning
+                            .StatusDrivenFailure,
+
+                    status_interpretation =
+                        spanGoverning
+                            .StatusInterpretation
+                },
+
+                checks = designChecks.Select(check =>
+                    new
+                    {
+                        check_type =
+                            check.CheckType,
+
+                        status =
+                            check.Status,
+
+                        utilization_ratio =
+                            Math.Round(
+                                check.UtilizationRatio,
+                                3
+                            ),
+
+                        load_combination =
+                            check.LoadCombination,
+
+                        failure_reason =
+                            check.FailureReason,
+
+                        description =
+                            check.Description
+                    }
+                ).ToList()
             });
         }
 
         bool isFailing =
-            governingUc >= 1.0 ||
-            governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase);
+            IsFailingCheckStatus(
+                governingStatus
+            )
+            ||
+            governingUc >= 1.0;
 
-        string failureReason = isFailing
-            ? $"Member {member.Name} is failing because the {governingCheckType} check has a utilization ratio of {Math.Round(governingUc, 3)}, which exceeds the allowable limit of 1.0."
-            : $"Member {member.Name} is not currently failing based on the available design checks. The governing check is {governingCheckType} with a utilization ratio of {Math.Round(governingUc, 3)}.";
+        bool isWarning =
+            IsWarningCheckStatus(
+                governingStatus
+            );
 
-        string engineeringInterpretation;
+        bool isUntested =
+            governingUc == 0
+            &&
+            GetCheckStatusPriority(
+                governingStatus
+            ) == 0;
 
-        if (!isFailing)
+        bool statusDrivenFailure =
+            IsFailingCheckStatus(
+                governingStatus
+            )
+            &&
+            governingUc < 1.0;
+
+        string failureReason;
+
+        if (!string.IsNullOrWhiteSpace(
+            tsdFailureReason
+        ))
         {
-            engineeringInterpretation = "No failure explanation is required because the member is passing based on the available design checks.";
+            failureReason =
+                tsdFailureReason;
         }
-        else if (governingCheckType.Contains("Static", StringComparison.OrdinalIgnoreCase))
+        else if (
+            governingStatus.Equals(
+                "Beyond",
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
         {
-            engineeringInterpretation = "The member is controlled by the static strength design check. Review the governing load combination, axial force, shear, bending, and torsion demands to determine which force component is driving the overstress.";
+            failureReason =
+                $"TSD reported the {governingCheckType} check as Beyond. " +
+                "The result is outside an accepted design or applicability limit, " +
+                "even though the reported utilization ratio is " +
+                $"{Math.Round(governingUc, 3)}.";
         }
-        else if (governingCheckType.Contains("Stability", StringComparison.OrdinalIgnoreCase))
+        else if (statusDrivenFailure)
         {
-            engineeringInterpretation = "The member appears to be controlled by stability. Review unbraced length, lateral restraint, effective length factors, and compression/bending interaction.";
+            failureReason =
+                $"TSD reported the {governingCheckType} check as Fail with a " +
+                $"utilization ratio of {Math.Round(governingUc, 3)}. " +
+                "Because the ratio is below 1.0, the failure is likely caused by " +
+                "another check condition, serviceability limit, applicability " +
+                "requirement, or design rule.";
+        }
+        else if (governingUc >= 1.0)
+        {
+            failureReason =
+                $"The governing {governingCheckType} utilization ratio is " +
+                $"{Math.Round(governingUc, 3)}, which is at or above the " +
+                "allowable limit of 1.0.";
+        }
+        else if (isWarning)
+        {
+            failureReason =
+                $"The member is not classified as failing, but TSD reported a " +
+                $"Warning for the {governingCheckType} check. The reported " +
+                $"utilization ratio is {Math.Round(governingUc, 3)}.";
+        }
+        else if (isUntested)
+        {
+            failureReason =
+                "No recognized governing design result or utilization ratio " +
+                "was available for this member.";
         }
         else
         {
-            engineeringInterpretation = "The member is failing based on the governing design check reported by TSD. Review detailed design results and governing load combinations for the exact demand/capacity driver.";
+            failureReason =
+                $"The member is not currently failing. The governing check is " +
+                $"{governingCheckType} with a utilization ratio of " +
+                $"{Math.Round(governingUc, 3)}.";
         }
 
-        var recommendedNextSteps = isFailing
-            ? new[]
-            {
-            "Run get_tsd_governing_load_combo for this member to identify which load combination controls the force demands.",
-            "Run get_tsd_member_force_envelope to review governing axial, shear, moment, torsion, and deflection values.",
-            "Review whether the failure is driven by strength, stability, connection assumptions, or load path.",
-            "Consider increasing the section size, improving bracing/restraint, reducing unbraced length, or reviewing applied loads."
-            }
-            : new[]
-            {
-            "No immediate design action required based on the available checks.",
-            "If utilization is close to 1.0, review constructability, connection design, and future load allowance."
-            };
+        string engineeringInterpretation;
 
-        Console.WriteLine(JsonSerializer.Serialize(new
+        if (
+            governingStatus.Equals(
+                "Beyond",
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
         {
-            member = member.Name,
-            member_type = InferMemberType(member.Name),
-            section = primarySection,
-            section_type = primarySectionType,
-            material_type = primaryMaterialType,
+            engineeringInterpretation =
+                "Review the detailed TSD check output to determine which " +
+                "applicability or design limit has been exceeded. Do not rely " +
+                "on utilization ratio alone.";
+        }
+        else if (statusDrivenFailure)
+        {
+            engineeringInterpretation =
+                "This is a status-driven failure rather than a simple " +
+                "utilization-over-1.0 failure. Review serviceability, " +
+                "slenderness, stability, restraints, effective length, " +
+                "applicability limits, and detailed design messages.";
+        }
+        else if (
+            governingCheckType.Contains(
+                "Stability",
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            engineeringInterpretation =
+                "The member appears to be governed by stability. Review " +
+                "unbraced length, lateral restraints, effective length factors, " +
+                "compression behavior, and axial-bending interaction.";
+        }
+        else if (
+            governingCheckType.Contains(
+                "Static",
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            engineeringInterpretation =
+                "The member appears to be governed by the static design check. " +
+                "Review axial force, shear, bending, torsion, combined actions, " +
+                "and the governing load combination.";
+        }
+        else if (isWarning)
+        {
+            engineeringInterpretation =
+                "The member requires engineering review because TSD reported a " +
+                "warning. It should not be treated as an ordinary passing member.";
+        }
+        else if (isUntested)
+        {
+            engineeringInterpretation =
+                "A reliable design conclusion cannot be made until valid design " +
+                "results are available.";
+        }
+        else
+        {
+            engineeringInterpretation =
+                "The available TSD design checks do not indicate a current failure.";
+        }
 
-            is_failing = isFailing,
+        object? GetSolverValue(
+            object obj,
+            string propertyName
+        )
+        {
+            return GetWrappedOrDirectProperty(
+                obj,
+                propertyName
+            );
+        }
 
-            governing_check = new
+        var solverErrors =
+            await model.GetSolverErrorsAsync(
+                new[] { analysisType },
+                default
+            );
+
+        var relatedSolverWarnings =
+            solverErrors
+                .Select(error => new
+                {
+                    level =
+                        GetSolverValue(
+                            error,
+                            "ErrorLevel"
+                        )?.ToString(),
+
+                    text =
+                        GetSolverValue(
+                            error,
+                            "Text"
+                        )?.ToString(),
+
+                    description =
+                        GetSolverValue(
+                            error,
+                            "Description"
+                        )?.ToString(),
+
+                    related_entity =
+                        GetSolverValue(
+                            error,
+                            "RelatedEntity"
+                        )?.ToString()
+                })
+                .Where(item =>
+                    (
+                        item.related_entity
+                            ?.Contains(
+                                member.Name,
+                                StringComparison
+                                    .OrdinalIgnoreCase
+                            )
+                        ?? false
+                    )
+                    ||
+                    (
+                        item.text
+                            ?.Contains(
+                                member.Name,
+                                StringComparison
+                                    .OrdinalIgnoreCase
+                            )
+                        ?? false
+                    )
+                    ||
+                    (
+                        item.description
+                            ?.Contains(
+                                member.Name,
+                                StringComparison
+                                    .OrdinalIgnoreCase
+                            )
+                        ?? false
+                    )
+                )
+                .ToList();
+
+        var recommendedNextSteps =
+            new List<string>();
+
+        if (isFailing || isWarning)
+        {
+            recommendedNextSteps.Add(
+                "Review the detailed TSD design check for the governing span."
+            );
+
+            recommendedNextSteps.Add(
+                $"Run get_tsd_governing_load_combo for member {member.Name}."
+            );
+
+            recommendedNextSteps.Add(
+                $"Run get_tsd_member_force_envelope for member {member.Name}."
+            );
+        }
+
+        if (
+            governingCheckType.Contains(
+                "Stability",
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            recommendedNextSteps.Add(
+                "Review unbraced length, lateral restraints, effective length, " +
+                "slenderness, and compression-bending interaction."
+            );
+        }
+        else if (isFailing)
+        {
+            recommendedNextSteps.Add(
+                "Review section capacity, member forces, serviceability, " +
+                "restraints, applied loads, and load path."
+            );
+        }
+
+        if (statusDrivenFailure)
+        {
+            recommendedNextSteps.Add(
+                governingStatus.Equals(
+                    "Beyond",
+                    StringComparison.OrdinalIgnoreCase
+                )
+                    ? "Investigate why TSD reports Beyond despite a utilization ratio below 1.0. Review applicability limits, section classification, slenderness, geometry, restraints, and detailed design messages."
+                    : "Investigate why TSD reports Fail below UC 1.0 rather than assuming the member only needs a larger section."
+            );
+        }
+
+        if (!isFailing && !isWarning)
+        {
+            recommendedNextSteps.Add(
+                "No immediate strengthening action is indicated by the " +
+                "available design checks."
+            );
+        }
+
+        Console.WriteLine(
+            JsonSerializer.Serialize(new
             {
-                check_type = governingCheckType,
-                status = governingStatus,
-                utilization_ratio = Math.Round(governingUc, 3),
-                span = governingSpan
-            },
+                tool_version = "2.0",
 
-            failure_reason = failureReason,
-            engineering_interpretation = engineeringInterpretation,
-            recommended_next_steps = recommendedNextSteps,
-            overall_conclusion = "The structural model is generally in good condition with a model health score of 93.3. Three beam members currently fail the governing design checks, while 384 members are approaching design limits. No widespread instability or systemic design issue is indicated; attention should be focused on the localized critical members before optimization.",
+                member = member.Name,
 
-            note = "This tool explains failure based on TSD design check results. Use get_tsd_governing_load_combo and get_tsd_member_force_envelope for force-level investigation.",
+                member_type =
+                    InferMemberType(
+                        member.Name
+                    ),
 
-            spans = spanResults
-        }));
+                section = primarySection,
+                section_type = primarySectionType,
+                material_type = primaryMaterialType,
+
+                analysis_type =
+                    analysisType.ToString(),
+
+                design_classification =
+                    isFailing
+                        ? "Failing"
+                        : isWarning
+                            ? "Warning / Review"
+                            : isUntested
+                                ? "Untested"
+                                : governingUc >= 0.90
+                                    ? "Near Limit"
+                                    : "Passing",
+
+                is_failing = isFailing,
+                is_warning = isWarning,
+                is_untested = isUntested,
+
+                governing_check = new
+                {
+                    span = governingSpan,
+
+                    check_type =
+                        governingCheckType,
+
+                    status =
+                        governingStatus,
+
+                    utilization_ratio =
+                        Math.Round(
+                            governingUc,
+                            3
+                        ),
+
+                    status_priority =
+                        GetCheckStatusPriority(
+                            governingStatus
+                        ),
+
+                    status_driven_failure =
+                        statusDrivenFailure,
+
+                    status_interpretation =
+                        GetCheckStatusInterpretation(
+                            governingStatus,
+                            governingUc
+                        )
+                },
+
+                governing_load_combination =
+                    governingLoadCombination,
+
+                governing_load_combination_note =
+                    governingLoadCombination == null
+                        ? "The governing design load combination was not exposed by the available CheckResults object. Use get_tsd_governing_load_combo for force-based governing combinations."
+                        : "The load combination was read directly from the governing TSD design check object.",
+
+                tsd_failure_reason =
+                    tsdFailureReason,
+
+                tsd_description =
+                    tsdDescription,
+
+                failure_reason =
+                    failureReason,
+
+                engineering_interpretation =
+                    engineeringInterpretation,
+
+                related_solver_warning_count =
+                    relatedSolverWarnings.Count,
+
+                related_solver_warnings =
+                    relatedSolverWarnings,
+
+                recommended_next_steps =
+                    recommendedNextSteps,
+
+                engineering_limitations = new
+                {
+                    design_check_source =
+                        "TSD member span CheckResults",
+
+                    load_combination_limitation =
+                        "A force-based governing load combination is not necessarily the same as the governing design-check combination.",
+
+                    engineering_review =
+                        "Any section, restraint, load, or design change must be rerun through analysis and design."
+                },
+
+                spans =
+                    spanResults
+            })
+        );
     }
     else if (command == "debug_line_element_end_force_object")
     {
@@ -6148,6 +6625,208 @@ static (
         WeightPerFt: weightPerFt,
         TotalWeightLb: totalWeightLb
     );
+}
+
+static object? GetWrappedOrDirectProperty(
+    object? obj,
+    string propertyName
+)
+{
+    if (obj == null)
+        return null;
+
+    try
+    {
+        var property = obj
+            .GetType()
+            .GetProperty(propertyName);
+
+        var value = property?.GetValue(obj);
+
+        if (value == null)
+            return null;
+
+        var wrappedValueProperty = value
+            .GetType()
+            .GetProperty("Value");
+
+        if (wrappedValueProperty != null)
+        {
+            return wrappedValueProperty.GetValue(value);
+        }
+
+        return value;
+    }
+    catch
+    {
+        return null;
+    }
+}
+
+static string? GetFirstAvailableProperty(
+    object? obj,
+    params string[] propertyNames
+)
+{
+    foreach (string propertyName in propertyNames)
+    {
+        var value = GetWrappedOrDirectProperty(
+            obj,
+            propertyName
+        );
+
+        string? text = value?.ToString();
+
+        if (
+            !string.IsNullOrWhiteSpace(text)
+            &&
+            !text.Equals(
+                "Unknown",
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            return text;
+        }
+    }
+
+    return null;
+}
+
+static List<(
+    string CheckType,
+    string Status,
+    double UtilizationRatio,
+    string? LoadCombination,
+    string? FailureReason,
+    string? Description
+)> GetDesignChecks(object span)
+{
+    var results = new List<(
+        string CheckType,
+        string Status,
+        double UtilizationRatio,
+        string? LoadCombination,
+        string? FailureReason,
+        string? Description
+    )>();
+
+    try
+    {
+        var checkResults = span
+            .GetType()
+            .GetProperty("CheckResults")?
+            .GetValue(span);
+
+        var valueEnumerable = checkResults?
+            .GetType()
+            .GetProperty("Value")?
+            .GetValue(checkResults)
+            as System.Collections.IEnumerable;
+
+        if (valueEnumerable == null)
+            return results;
+
+        foreach (var item in valueEnumerable)
+        {
+            if (item == null)
+                continue;
+
+            string checkType = item
+                .GetType()
+                .GetProperty("Key")?
+                .GetValue(item)?
+                .ToString()
+                ?? "Unknown";
+
+            var valueWrapper = item
+                .GetType()
+                .GetProperty("Value")?
+                .GetValue(item);
+
+            var checkResult = valueWrapper?
+                .GetType()
+                .GetProperty("Value")?
+                .GetValue(valueWrapper);
+
+            if (checkResult == null)
+                continue;
+
+            string status =
+                GetWrappedOrDirectProperty(
+                    checkResult,
+                    "CheckStatus"
+                )?.ToString()
+                ?? "Unknown";
+
+            double ratio = 0;
+
+            var ratioObject =
+                GetWrappedOrDirectProperty(
+                    checkResult,
+                    "UtilizationRatio"
+                );
+
+            if (ratioObject != null)
+            {
+                try
+                {
+                    ratio = Convert.ToDouble(
+                        ratioObject
+                    );
+                }
+                catch
+                {
+                    ratio = 0;
+                }
+            }
+
+            string? loadCombination =
+                GetFirstAvailableProperty(
+                    checkResult,
+                    "GoverningLoadCombination",
+                    "GoverningCombination",
+                    "LoadCombination",
+                    "Combination",
+                    "CombinationName",
+                    "LoadCombinationName"
+                );
+
+            string? failureReason =
+                GetFirstAvailableProperty(
+                    checkResult,
+                    "FailureReason",
+                    "FailReason",
+                    "Reason",
+                    "CheckMessage",
+                    "Message"
+                );
+
+            string? description =
+                GetFirstAvailableProperty(
+                    checkResult,
+                    "Description",
+                    "Details",
+                    "Detail",
+                    "Summary",
+                    "CheckDescription"
+                );
+
+            results.Add((
+                CheckType: checkType,
+                Status: status,
+                UtilizationRatio: ratio,
+                LoadCombination: loadCombination,
+                FailureReason: failureReason,
+                Description: description
+            ));
+        }
+    }
+    catch
+    {
+    }
+
+    return results;
 }
 
 static string NormalizeSectionName(string value)
