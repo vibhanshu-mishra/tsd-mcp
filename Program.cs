@@ -617,14 +617,10 @@ try
 
                 foreach (var span in spans)
                 {
-                    var physicalSection = GetPhysicalSection(span);
+                    var sectionInfo = GetSectionInfo(span);
 
-                    string section =
-                        GetPropertyValue(physicalSection, "LongName")
-                        ?? GetPropertyValue(physicalSection, "ShortName")
-                        ?? "Unknown";
-
-                    string normalizedSection = NormalizeSectionName(section);
+                    string section = sectionInfo.Section;
+                    string normalizedSection = sectionInfo.NormalizedSection;
                     string normalizedTargetSection = NormalizeSectionName(targetSection);
 
                     if (!string.Equals(
@@ -635,142 +631,32 @@ try
                         continue;
                     }
 
-                    string sectionType =
-                        GetPropertyValue(physicalSection, "SectionType")
-                        ?? "Unknown";
+                    string sectionType = sectionInfo.SectionType;
+                    string materialType = sectionInfo.MaterialType;
+                    double lengthFt = sectionInfo.LengthFt;
+                    double weightPerFt = sectionInfo.WeightPerFt;
+                    double spanTotalWeightLb = sectionInfo.TotalWeightLb;
 
-                    string materialType =
-                        GetPropertyValue(physicalSection, "MaterialType")
-                        ?? "Unknown";
+                    var governing = GetGoverningCheck(span);
 
-                    double lengthFt = 0;
-                    double weightPerFt = 0;
-                    double spanTotalWeightLb = 0;
+                    double governingUc = governing.UtilizationRatio;
+                    string governingStatus = governing.Status;
+                    string governingCheckType = governing.CheckType;
 
-                    try
-                    {
-                        lengthFt = span.Length.Value / MmPerFt;
-
-                        string massString =
-                            GetPropertyValue(physicalSection, "Mass")
-                            ?? "0";
-
-                        double mass = Convert.ToDouble(massString);
-                        weightPerFt = mass * TsdMassToPlf;
-                        spanTotalWeightLb = lengthFt * weightPerFt;
-                    }
-                    catch
-                    {
-                        lengthFt = 0;
-                        weightPerFt = 0;
-                        spanTotalWeightLb = 0;
-                    }
-
-                    double governingUc = 0;
-                    string governingStatus = "Unknown";
-                    string governingCheckType = "Unknown";
-
-                    try
-                    {
-                        var checkResults = span.GetType()
-                            .GetProperty("CheckResults")?
-                            .GetValue(span);
-
-                        var valueEnumerable = checkResults?
-                            .GetType()
-                            .GetProperty("Value")?
-                            .GetValue(checkResults)
-                            as System.Collections.IEnumerable;
-
-                        if (valueEnumerable != null)
-                        {
-                            foreach (var item in valueEnumerable)
-                            {
-                                var checkType = item.GetType()
-                                    .GetProperty("Key")?
-                                    .GetValue(item)?
-                                    .ToString();
-
-                                var valueWrapper = item.GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(item);
-
-                                var checkResult = valueWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(valueWrapper);
-
-                                if (checkResult == null)
-                                    continue;
-
-                                var statusWrapper = checkResult.GetType()
-                                    .GetProperty("CheckStatus")?
-                                    .GetValue(checkResult);
-
-                                var ratioWrapper = checkResult.GetType()
-                                    .GetProperty("UtilizationRatio")?
-                                    .GetValue(checkResult);
-
-                                string status = statusWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(statusWrapper)?
-                                    .ToString()
-                                    ?? "Unknown";
-
-                                var ratioObject = ratioWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(ratioWrapper);
-
-                                double ratio = ratioObject != null
-                                    ? Convert.ToDouble(ratioObject)
-                                    : 0;
-
-                                bool shouldGovern =
-                                    ratio > governingUc ||
-                                    (
-                                        status.Equals(
-                                            "Fail",
-                                            StringComparison.OrdinalIgnoreCase
-                                        ) &&
-                                        !governingStatus.Equals(
-                                            "Fail",
-                                            StringComparison.OrdinalIgnoreCase
-                                        )
-                                    );
-
-                                if (shouldGovern)
-                                {
-                                    governingUc = ratio;
-                                    governingStatus = status;
-                                    governingCheckType = checkType ?? "Unknown";
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                    }
-
-                    bool isUntested =
-                        governingUc == 0 &&
-                        !governingStatus.Equals(
-                            "Fail",
-                            StringComparison.OrdinalIgnoreCase
-                        );
+                    bool isFailing = governing.IsFailing;
+                    bool isWarning = governing.IsWarning;
+                    bool isUntested = governing.IsUntested;
 
                     string designCategory =
-                        governingStatus.Equals(
-                            "Fail",
-                            StringComparison.OrdinalIgnoreCase
-                        ) || governingUc >= 1.0
+                        isFailing
                             ? "Failing"
-                            : governingUc >= 0.90
-                                ? "Near Limit"
-                                : isUntested
-                                    ? "Untested / No Governing UC"
-                                    : "Passing";
+                            : isWarning
+                                ? "Warning / Review"
+                                : governingUc >= 0.90
+                                    ? "Near Limit"
+                                    : isUntested
+                                        ? "Untested / No Governing UC"
+                                        : "Passing";
 
                     results.Add(new
                     {
@@ -835,6 +721,10 @@ try
 
                     near_limit = group.Count(
                         x => (string)x.design_category == "Near Limit"
+                    ),
+
+                    warning = group.Count(
+                        x => (string)x.design_category == "Warning / Review"
                     ),
 
                     passing = group.Count(
@@ -908,6 +798,10 @@ try
                     x => (string)x.design_category == "Near Limit"
                 ),
 
+                warning_count = results.Count(
+                    x => (string)x.design_category == "Warning / Review"
+                ),
+
                 passing_count = results.Count(
                     x => (string)x.design_category == "Passing"
                 ),
@@ -959,149 +853,35 @@ try
 
                 foreach (var span in spans)
                 {
-                    var physicalSection = GetPhysicalSection(span);
+                    var sectionInfo = GetSectionInfo(span);
 
-                    string section =
-                        GetPropertyValue(physicalSection, "LongName")
-                        ?? GetPropertyValue(physicalSection, "ShortName")
-                        ?? "Unknown";
+                    string section = sectionInfo.Section;
+                    string sectionType = sectionInfo.SectionType;
+                    string materialType = sectionInfo.MaterialType;
+                    double lengthFt = sectionInfo.LengthFt;
+                    double weightPerFt = sectionInfo.WeightPerFt;
+                    double totalWeightLb = sectionInfo.TotalWeightLb;
 
-                    string sectionType =
-                        GetPropertyValue(physicalSection, "SectionType")
-                        ?? "Unknown";
+                    var governing = GetGoverningCheck(span);
 
-                    string materialType =
-                        GetPropertyValue(physicalSection, "MaterialType")
-                        ?? "Unknown";
+                    double governingUc = governing.UtilizationRatio;
+                    string governingStatus = governing.Status;
+                    string governingCheckType = governing.CheckType;
 
-                    double lengthFt = 0;
-                    double weightPerFt = 0;
-                    double totalWeightLb = 0;
-
-                    try
-                    {
-                        lengthFt = span.Length.Value / MmPerFt;
-
-                        string massString =
-                            GetPropertyValue(physicalSection, "Mass")
-                            ?? "0";
-
-                        double mass = Convert.ToDouble(massString);
-                        weightPerFt = mass * TsdMassToPlf;
-                        totalWeightLb = lengthFt * weightPerFt;
-                    }
-                    catch
-                    {
-                        lengthFt = 0;
-                        weightPerFt = 0;
-                        totalWeightLb = 0;
-                    }
-
-                    double governingUc = 0;
-                    string governingStatus = "Unknown";
-                    string governingCheckType = "Unknown";
-
-                    try
-                    {
-                        var checkResults = span.GetType()
-                            .GetProperty("CheckResults")?
-                            .GetValue(span);
-
-                        var valueEnumerable = checkResults?
-                            .GetType()
-                            .GetProperty("Value")?
-                            .GetValue(checkResults)
-                            as System.Collections.IEnumerable;
-
-                        if (valueEnumerable != null)
-                        {
-                            foreach (var item in valueEnumerable)
-                            {
-                                var checkType = item.GetType()
-                                    .GetProperty("Key")?
-                                    .GetValue(item)?
-                                    .ToString();
-
-                                var valueWrapper = item.GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(item);
-
-                                var checkResult = valueWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(valueWrapper);
-
-                                if (checkResult == null)
-                                    continue;
-
-                                var statusWrapper = checkResult.GetType()
-                                    .GetProperty("CheckStatus")?
-                                    .GetValue(checkResult);
-
-                                var ratioWrapper = checkResult.GetType()
-                                    .GetProperty("UtilizationRatio")?
-                                    .GetValue(checkResult);
-
-                                string status = statusWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(statusWrapper)?
-                                    .ToString()
-                                    ?? "Unknown";
-
-                                var ratioObject = ratioWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(ratioWrapper);
-
-                                double ratio = ratioObject != null
-                                    ? Convert.ToDouble(ratioObject)
-                                    : 0;
-
-                                bool shouldGovern =
-                                    ratio > governingUc ||
-                                    (
-                                        status.Equals(
-                                            "Fail",
-                                            StringComparison.OrdinalIgnoreCase
-                                        ) &&
-                                        !governingStatus.Equals(
-                                            "Fail",
-                                            StringComparison.OrdinalIgnoreCase
-                                        )
-                                    );
-
-                                if (shouldGovern)
-                                {
-                                    governingUc = ratio;
-                                    governingStatus = status;
-                                    governingCheckType = checkType ?? "Unknown";
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                    }
-
-                    bool isUntested =
-                        governingUc == 0 &&
-                        !governingStatus.Equals(
-                            "Fail",
-                            StringComparison.OrdinalIgnoreCase
-                        );
+                    bool isFailing = governing.IsFailing;
+                    bool isWarning = governing.IsWarning;
+                    bool isUntested = governing.IsUntested;
 
                     string designCategory =
-                        governingStatus.Equals(
-                            "Fail",
-                            StringComparison.OrdinalIgnoreCase
-                        ) || governingUc >= 1.0
+                        isFailing
                             ? "Failing"
-                            : governingUc >= 0.90
-                                ? "Near Limit"
-                                : isUntested
-                                    ? "Untested / No Governing UC"
-                                    : "Passing";
+                            : isWarning
+                                ? "Warning / Review"
+                                : governingUc >= 0.90
+                                    ? "Near Limit"
+                                    : isUntested
+                                        ? "Untested / No Governing UC"
+                                        : "Passing";
 
                     rows.Add(new
                     {
@@ -1110,7 +890,7 @@ try
                         span = span.Name,
 
                         section,
-                        normalized_section = NormalizeSectionName(section),
+                        normalized_section = sectionInfo.NormalizedSection,
                         section_type = sectionType,
                         material_type = materialType,
 
@@ -1197,6 +977,10 @@ try
 
                     near_limit_count = group.Count(x =>
                         (string)x.design_category == "Near Limit"
+                    ),
+
+                    warning_count = group.Count(x =>
+                        (string)x.design_category == "Warning / Review"
                     ),
 
                     passing_count = group.Count(x =>
@@ -1330,6 +1114,10 @@ try
                     (string)x.design_category == "Near Limit"
                 ),
 
+                warning_span_count = rows.Count(x =>
+                    (string)x.design_category == "Warning / Review"
+                ),
+
                 passing_span_count = rows.Count(x =>
                     (string)x.design_category == "Passing"
                 ),
@@ -1385,151 +1173,35 @@ try
 
                 foreach (var span in spans)
                 {
-                    var physicalSection = GetPhysicalSection(span);
+                    var sectionInfo = GetSectionInfo(span);
 
-                    string section =
-                        GetPropertyValue(physicalSection, "LongName")
-                        ?? GetPropertyValue(physicalSection, "ShortName")
-                        ?? "Unknown";
+                    string section = sectionInfo.Section;
+                    string sectionType = sectionInfo.SectionType;
+                    string materialType = sectionInfo.MaterialType;
+                    double lengthFt = sectionInfo.LengthFt;
+                    double weightPerFt = sectionInfo.WeightPerFt;
+                    double totalWeightLb = sectionInfo.TotalWeightLb;
 
-                    string sectionType =
-                        GetPropertyValue(physicalSection, "SectionType")
-                        ?? "Unknown";
+                    var governing = GetGoverningCheck(span);
 
-                    string materialType =
-                        GetPropertyValue(physicalSection, "MaterialType")
-                        ?? "Unknown";
+                    double governingUc = governing.UtilizationRatio;
+                    string governingStatus = governing.Status;
+                    string governingCheckType = governing.CheckType;
 
-                    double lengthFt = 0;
-                    double weightPerFt = 0;
-                    double totalWeightLb = 0;
-
-                    try
-                    {
-                        lengthFt = span.Length.Value / MmPerFt;
-
-                        string massString =
-                            GetPropertyValue(physicalSection, "Mass")
-                            ?? "0";
-
-                        double mass = Convert.ToDouble(massString);
-
-                        weightPerFt = mass * TsdMassToPlf;
-                        totalWeightLb = lengthFt * weightPerFt;
-                    }
-                    catch
-                    {
-                        lengthFt = 0;
-                        weightPerFt = 0;
-                        totalWeightLb = 0;
-                    }
-
-                    double governingUc = 0;
-                    string governingStatus = "Unknown";
-                    string governingCheckType = "Unknown";
-
-                    try
-                    {
-                        var checkResults = span.GetType()
-                            .GetProperty("CheckResults")?
-                            .GetValue(span);
-
-                        var valueEnumerable = checkResults?
-                            .GetType()
-                            .GetProperty("Value")?
-                            .GetValue(checkResults)
-                            as System.Collections.IEnumerable;
-
-                        if (valueEnumerable != null)
-                        {
-                            foreach (var item in valueEnumerable)
-                            {
-                                string checkType = item.GetType()
-                                    .GetProperty("Key")?
-                                    .GetValue(item)?
-                                    .ToString()
-                                    ?? "Unknown";
-
-                                var valueWrapper = item.GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(item);
-
-                                var checkResult = valueWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(valueWrapper);
-
-                                if (checkResult == null)
-                                    continue;
-
-                                var statusWrapper = checkResult.GetType()
-                                    .GetProperty("CheckStatus")?
-                                    .GetValue(checkResult);
-
-                                var ratioWrapper = checkResult.GetType()
-                                    .GetProperty("UtilizationRatio")?
-                                    .GetValue(checkResult);
-
-                                string status = statusWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(statusWrapper)?
-                                    .ToString()
-                                    ?? "Unknown";
-
-                                var ratioObject = ratioWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(ratioWrapper);
-
-                                double ratio = ratioObject != null
-                                    ? Convert.ToDouble(ratioObject)
-                                    : 0;
-
-                                bool shouldGovern =
-                                    ratio > governingUc ||
-                                    (
-                                        status.Equals(
-                                            "Fail",
-                                            StringComparison.OrdinalIgnoreCase
-                                        ) &&
-                                        !governingStatus.Equals(
-                                            "Fail",
-                                            StringComparison.OrdinalIgnoreCase
-                                        )
-                                    );
-
-                                if (shouldGovern)
-                                {
-                                    governingUc = ratio;
-                                    governingStatus = status;
-                                    governingCheckType = checkType;
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                    }
-
-                    bool isUntested =
-                        governingUc == 0 &&
-                        !governingStatus.Equals(
-                            "Fail",
-                            StringComparison.OrdinalIgnoreCase
-                        );
+                    bool isFailing = governing.IsFailing;
+                    bool isWarning = governing.IsWarning;
+                    bool isUntested = governing.IsUntested;
 
                     string designCategory =
-                        governingStatus.Equals(
-                            "Fail",
-                            StringComparison.OrdinalIgnoreCase
-                        ) || governingUc >= 1.0
+                        isFailing
                             ? "Failing"
-                            : governingUc >= 0.90
-                                ? "Near Limit"
-                                : isUntested
-                                    ? "Untested / No Governing UC"
-                                    : "Passing";
+                            : isWarning
+                                ? "Warning / Review"
+                                : governingUc >= 0.90
+                                    ? "Near Limit"
+                                    : isUntested
+                                        ? "Untested / No Governing UC"
+                                        : "Passing";
 
                     scheduleRows.Add(new
                     {
@@ -1538,7 +1210,7 @@ try
                         span = span.Name,
 
                         section,
-                        normalized_section = NormalizeSectionName(section),
+                        normalized_section = sectionInfo.NormalizedSection,
                         section_type = sectionType,
                         material_type = materialType,
 
@@ -1658,6 +1330,10 @@ try
 
                     near_limit_count = group.Count(row =>
                         (string)row.design_category == "Near Limit"
+                    ),
+
+                    warning_count = group.Count(row =>
+                        (string)row.design_category == "Warning / Review"
                     ),
 
                     passing_count = group.Count(row =>
@@ -1780,6 +1456,10 @@ try
 
                 near_limit_count = nearLimitMembers.Count,
 
+                warning_count = scheduleRows.Count(row =>
+                    (string)row.design_category == "Warning / Review"
+                ),
+
                 passing_count = scheduleRows.Count(row =>
                     (string)row.design_category == "Passing"
                 ),
@@ -1898,184 +1578,24 @@ try
 
                 foreach (var span in spans)
                 {
-                    var physicalSection = GetPhysicalSection(span);
+                    var sectionInfo = GetSectionInfo(span, steelOnlyWeight: true);
 
-                    string section =
-                        GetPropertyValue(
-                            physicalSection,
-                            "LongName"
-                        )
-                        ?? GetPropertyValue(
-                            physicalSection,
-                            "ShortName"
-                        )
-                        ?? "Unknown";
+                    string section = sectionInfo.Section;
+                    string sectionType = sectionInfo.SectionType;
+                    string materialType = sectionInfo.MaterialType;
+                    double lengthFt = sectionInfo.LengthFt;
+                    double weightPerFt = sectionInfo.WeightPerFt;
+                    double currentWeightLb = sectionInfo.TotalWeightLb;
 
-                    string sectionType =
-                        GetPropertyValue(
-                            physicalSection,
-                            "SectionType"
-                        )
-                        ?? "Unknown";
+                    var governing = GetGoverningCheck(span);
 
-                    string materialType =
-                        GetPropertyValue(
-                            physicalSection,
-                            "MaterialType"
-                        )
-                        ?? "Unknown";
+                    double governingUc = governing.UtilizationRatio;
+                    string governingStatus = governing.Status;
+                    string governingCheckType = governing.CheckType;
 
-                    double lengthFt = 0;
-                    double weightPerFt = 0;
-                    double currentWeightLb = 0;
-
-                    try
-                    {
-                        lengthFt =
-                            span.Length.Value / MmPerFt;
-
-                        string massString =
-                            GetPropertyValue(
-                                physicalSection,
-                                "Mass"
-                            )
-                            ?? "0";
-
-                        double mass =
-                            Convert.ToDouble(massString);
-
-                        if (
-                            materialType.Equals(
-                                "Steel",
-                                StringComparison.OrdinalIgnoreCase
-                            )
-                        )
-                        {
-                            weightPerFt =
-                                mass * TsdMassToPlf;
-
-                            currentWeightLb =
-                                lengthFt * weightPerFt;
-                        }
-                    }
-                    catch
-                    {
-                        lengthFt = 0;
-                        weightPerFt = 0;
-                        currentWeightLb = 0;
-                    }
-
-                    double governingUc = 0;
-                    string governingStatus = "Unknown";
-                    string governingCheckType = "Unknown";
-
-                    try
-                    {
-                        var checkResults = span
-                            .GetType()
-                            .GetProperty("CheckResults")?
-                            .GetValue(span);
-
-                        var valueEnumerable = checkResults?
-                            .GetType()
-                            .GetProperty("Value")?
-                            .GetValue(checkResults)
-                            as System.Collections.IEnumerable;
-
-                        if (valueEnumerable != null)
-                        {
-                            foreach (var item in valueEnumerable)
-                            {
-                                string checkType = item
-                                    .GetType()
-                                    .GetProperty("Key")?
-                                    .GetValue(item)?
-                                    .ToString()
-                                    ?? "Unknown";
-
-                                var valueWrapper = item
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(item);
-
-                                var checkResult = valueWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(valueWrapper);
-
-                                if (checkResult == null)
-                                    continue;
-
-                                var statusWrapper = checkResult
-                                    .GetType()
-                                    .GetProperty("CheckStatus")?
-                                    .GetValue(checkResult);
-
-                                var ratioWrapper = checkResult
-                                    .GetType()
-                                    .GetProperty("UtilizationRatio")?
-                                    .GetValue(checkResult);
-
-                                string status = statusWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(statusWrapper)?
-                                    .ToString()
-                                    ?? "Unknown";
-
-                                var ratioObject = ratioWrapper?
-                                    .GetType()
-                                    .GetProperty("Value")?
-                                    .GetValue(ratioWrapper);
-
-                                double ratio =
-                                    ratioObject != null
-                                        ? Convert.ToDouble(
-                                            ratioObject
-                                        )
-                                        : 0;
-
-                                int newStatusPriority =
-                                    GetCheckStatusPriority(status);
-
-                                int currentStatusPriority =
-                                    GetCheckStatusPriority(governingStatus);
-
-                                bool shouldGovern =
-                                    newStatusPriority > currentStatusPriority
-                                    ||
-                                    (
-                                        newStatusPriority == currentStatusPriority
-                                        &&
-                                        ratio > governingUc
-                                    );
-
-                                if (shouldGovern)
-                                {
-                                    governingUc = ratio;
-                                    governingStatus = status;
-                                    governingCheckType =
-                                        checkType;
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                    }
-
-                    bool isFailing =
-                        IsFailingCheckStatus(governingStatus)
-                        ||
-                        governingUc >= 1.0;
-
-                    bool isWarning =
-                        IsWarningCheckStatus(governingStatus);
-
-                    bool isUntested =
-                        governingUc == 0
-                        &&
-                        GetCheckStatusPriority(governingStatus) == 0;
+                    bool isFailing = governing.IsFailing;
+                    bool isWarning = governing.IsWarning;
+                    bool isUntested = governing.IsUntested;
 
                     bool isNearLimit =
                         !isFailing
@@ -2233,35 +1753,15 @@ try
 
                         governing_check = new
                         {
-                            check_type =
-                                governingCheckType,
-
-                            status =
-                                governingStatus,
-
-                            utilization_ratio =
-                                Math.Round(
-                                    governingUc,
-                                    3
-                                ),
-
-                            status_priority =
-                                GetCheckStatusPriority(
-                                    governingStatus
-                                ),
-
-                            status_interpretation =
-                                GetCheckStatusInterpretation(
-                                    governingStatus,
-                                    governingUc
-                                ),
-
-                            status_driven_failure =
-                                IsFailingCheckStatus(
-                                    governingStatus
-                                )
-                                &&
-                                governingUc < 1.0
+                            check_type = governing.CheckType,
+                            status = governing.Status,
+                            utilization_ratio = Math.Round(
+                                governing.UtilizationRatio,
+                                3
+                            ),
+                            status_priority = governing.StatusPriority,
+                            status_interpretation = governing.StatusInterpretation,
+                            status_driven_failure = governing.StatusDrivenFailure
                         },
 
                         is_failing = isFailing,
@@ -6206,7 +5706,7 @@ static string InferMemberType(string memberName)
         )
     )
     {
-        return "Column Base Plate";
+        return "Column";
     }
 
     if (
@@ -6236,7 +5736,7 @@ static string InferMemberType(string memberName)
         )
     )
     {
-        return "Column";
+        return "Channel";
     }
 
     if (
@@ -6413,6 +5913,241 @@ static object? SafeGetProperty(PropertyInfo p, object obj)
 {
     try { return p.GetValue(obj)?.ToString(); }
     catch { return null; }
+}
+
+static (
+    string CheckType,
+    string Status,
+    double UtilizationRatio,
+    int StatusPriority,
+    bool IsFailing,
+    bool IsWarning,
+    bool IsUntested,
+    bool StatusDrivenFailure,
+    string StatusInterpretation
+) GetGoverningCheck(object span)
+{
+    double governingUc = 0;
+    string governingStatus = "Unknown";
+    string governingCheckType = "Unknown";
+
+    try
+    {
+        var checkResults = span
+            .GetType()
+            .GetProperty("CheckResults")?
+            .GetValue(span);
+
+        var valueEnumerable = checkResults?
+            .GetType()
+            .GetProperty("Value")?
+            .GetValue(checkResults)
+            as System.Collections.IEnumerable;
+
+        if (valueEnumerable != null)
+        {
+            foreach (var item in valueEnumerable)
+            {
+                if (item == null)
+                    continue;
+
+                string checkType = item
+                    .GetType()
+                    .GetProperty("Key")?
+                    .GetValue(item)?
+                    .ToString()
+                    ?? "Unknown";
+
+                var valueWrapper = item
+                    .GetType()
+                    .GetProperty("Value")?
+                    .GetValue(item);
+
+                var checkResult = valueWrapper?
+                    .GetType()
+                    .GetProperty("Value")?
+                    .GetValue(valueWrapper);
+
+                if (checkResult == null)
+                    continue;
+
+                var statusWrapper = checkResult
+                    .GetType()
+                    .GetProperty("CheckStatus")?
+                    .GetValue(checkResult);
+
+                var ratioWrapper = checkResult
+                    .GetType()
+                    .GetProperty("UtilizationRatio")?
+                    .GetValue(checkResult);
+
+                string status = statusWrapper?
+                    .GetType()
+                    .GetProperty("Value")?
+                    .GetValue(statusWrapper)?
+                    .ToString()
+                    ?? "Unknown";
+
+                var ratioObject = ratioWrapper?
+                    .GetType()
+                    .GetProperty("Value")?
+                    .GetValue(ratioWrapper);
+
+                double ratio = 0;
+
+                if (ratioObject != null)
+                {
+                    try
+                    {
+                        ratio = Convert.ToDouble(ratioObject);
+                    }
+                    catch
+                    {
+                        ratio = 0;
+                    }
+                }
+
+                int newStatusPriority =
+                    GetCheckStatusPriority(status);
+
+                int currentStatusPriority =
+                    GetCheckStatusPriority(governingStatus);
+
+                bool shouldGovern =
+                    newStatusPriority > currentStatusPriority
+                    ||
+                    (
+                        newStatusPriority == currentStatusPriority
+                        &&
+                        ratio > governingUc
+                    );
+
+                if (shouldGovern)
+                {
+                    governingUc = ratio;
+                    governingStatus = status;
+                    governingCheckType = checkType;
+                }
+            }
+        }
+    }
+    catch
+    {
+    }
+
+    bool isFailing =
+        IsFailingCheckStatus(governingStatus)
+        ||
+        governingUc >= 1.0;
+
+    bool isWarning =
+        IsWarningCheckStatus(governingStatus);
+
+    bool isUntested =
+        governingUc == 0
+        &&
+        GetCheckStatusPriority(governingStatus) == 0;
+
+    return (
+        CheckType: governingCheckType,
+        Status: governingStatus,
+        UtilizationRatio: governingUc,
+        StatusPriority: GetCheckStatusPriority(governingStatus),
+        IsFailing: isFailing,
+        IsWarning: isWarning,
+        IsUntested: isUntested,
+        StatusDrivenFailure:
+            IsFailingCheckStatus(governingStatus)
+            && governingUc < 1.0,
+        StatusInterpretation:
+            GetCheckStatusInterpretation(
+                governingStatus,
+                governingUc
+            )
+    );
+}
+
+static (
+    string Section,
+    string NormalizedSection,
+    string SectionType,
+    string MaterialType,
+    double LengthFt,
+    double WeightPerFt,
+    double TotalWeightLb
+) GetSectionInfo(object span, bool steelOnlyWeight = false)
+{
+    const double MmPerFt = 304.8;
+    const double TsdMassToPlf = 671.9689751395068;
+
+    string section = "Unknown";
+    string sectionType = "Unknown";
+    string materialType = "Unknown";
+    double lengthFt = 0;
+    double weightPerFt = 0;
+    double totalWeightLb = 0;
+
+    try
+    {
+        var physicalSection = GetPhysicalSection(span);
+
+        section =
+            GetPropertyValue(physicalSection, "LongName")
+            ?? GetPropertyValue(physicalSection, "ShortName")
+            ?? "Unknown";
+
+        sectionType =
+            GetPropertyValue(physicalSection, "SectionType")
+            ?? "Unknown";
+
+        materialType =
+            GetPropertyValue(physicalSection, "MaterialType")
+            ?? "Unknown";
+
+        var lengthWrapper = span
+            .GetType()
+            .GetProperty("Length")?
+            .GetValue(span);
+
+        var lengthValue = lengthWrapper?
+            .GetType()
+            .GetProperty("Value")?
+            .GetValue(lengthWrapper);
+
+        lengthFt = Convert.ToDouble(lengthValue ?? 0) / MmPerFt;
+
+        bool shouldCalculateWeight =
+            !steelOnlyWeight
+            || materialType.Equals(
+                "Steel",
+                StringComparison.OrdinalIgnoreCase
+            );
+
+        if (shouldCalculateWeight)
+        {
+            string massString =
+                GetPropertyValue(physicalSection, "Mass")
+                ?? "0";
+
+            double mass = Convert.ToDouble(massString);
+            weightPerFt = mass * TsdMassToPlf;
+            totalWeightLb = lengthFt * weightPerFt;
+        }
+    }
+    catch
+    {
+        // Return any values that were successfully read before the error.
+    }
+
+    return (
+        Section: section,
+        NormalizedSection: NormalizeSectionName(section),
+        SectionType: sectionType,
+        MaterialType: materialType,
+        LengthFt: lengthFt,
+        WeightPerFt: weightPerFt,
+        TotalWeightLb: totalWeightLb
+    );
 }
 
 static string NormalizeSectionName(string value)
