@@ -3627,6 +3627,419 @@ try
             overall_governing_combination = overallGoverningCombination
         }));
     }
+    else if (command == "get_tsd_member_design_checks")
+    {
+        if (args.Length < 2)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = "Usage: get_tsd_member_design_checks <member_name>"
+            }));
+            return;
+        }
+
+        string targetName = args[1];
+
+        var members = await model.GetMembersAsync(null);
+        var member = members.FirstOrDefault(m =>
+            string.Equals(
+                m.Name,
+                targetName,
+                StringComparison.OrdinalIgnoreCase
+            )
+        );
+
+        if (member == null)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = $"Member not found: {targetName}"
+            }));
+            return;
+        }
+
+        var spans = await member.GetSpanAsync(null);
+        var spanResults = new List<dynamic>();
+        var allChecks = new List<dynamic>();
+
+        string primarySection = "Unknown";
+        string primarySectionType = "Unknown";
+        string primaryMaterialType = "Unknown";
+
+        string governingSpan = "Unknown";
+        string governingCheckType = "Unknown";
+        string governingStatus = "Unknown";
+        double governingUc = 0;
+        int governingPriority = 0;
+
+        foreach (var span in spans)
+        {
+            var sectionInfo = GetSectionInfo(span);
+
+            if (
+                primarySection == "Unknown"
+                && sectionInfo.Section != "Unknown"
+            )
+            {
+                primarySection = sectionInfo.Section;
+            }
+
+            if (
+                primarySectionType == "Unknown"
+                && sectionInfo.SectionType != "Unknown"
+            )
+            {
+                primarySectionType = sectionInfo.SectionType;
+            }
+
+            if (
+                primaryMaterialType == "Unknown"
+                && sectionInfo.MaterialType != "Unknown"
+            )
+            {
+                primaryMaterialType = sectionInfo.MaterialType;
+            }
+
+            var checks = GetDesignChecks(span);
+            var spanGoverning = GetGoverningCheck(span);
+
+            bool shouldGovern =
+                spanGoverning.StatusPriority > governingPriority
+                ||
+                (
+                    spanGoverning.StatusPriority == governingPriority
+                    && spanGoverning.UtilizationRatio > governingUc
+                );
+
+            if (shouldGovern)
+            {
+                governingSpan = span.Name;
+                governingCheckType = spanGoverning.CheckType;
+                governingStatus = spanGoverning.Status;
+                governingUc = spanGoverning.UtilizationRatio;
+                governingPriority = spanGoverning.StatusPriority;
+            }
+
+            var formattedChecks = checks
+                .Select(check =>
+                {
+                    bool isFailing =
+                        IsFailingCheckStatus(check.Status)
+                        || check.UtilizationRatio >= 1.0;
+
+                    bool isWarning =
+                        IsWarningCheckStatus(check.Status);
+
+                    bool isNotRequired =
+                        check.Status.Equals(
+                            "NotRequired",
+                            StringComparison.OrdinalIgnoreCase
+                        );
+
+                    bool isUnknown =
+                        string.IsNullOrWhiteSpace(check.Status)
+                        ||
+                        check.Status.Equals(
+                            "Unknown",
+                            StringComparison.OrdinalIgnoreCase
+                        );
+
+                    bool isUntested =
+                        !isNotRequired
+                        &&
+                        !isUnknown
+                        &&
+                        check.UtilizationRatio == 0
+                        &&
+                        GetCheckStatusPriority(check.Status) == 0;
+
+                    bool statusDrivenFailure =
+                        IsFailingCheckStatus(check.Status)
+                        && check.UtilizationRatio < 1.0;
+
+                    string designCategory =
+                        isNotRequired
+                            ? "Not Required"
+                            : isUnknown
+                                ? "Unknown / Unavailable"
+                                : GetDesignCategory(
+                                    isFailing,
+                                    isWarning,
+                                    isUntested,
+                                    check.UtilizationRatio
+                                );
+
+                    var row = new
+                    {
+                        member = member.Name,
+                        span = span.Name,
+                        check_type = check.CheckType,
+                        status = check.Status,
+                        utilization_ratio = Math.Round(
+                            check.UtilizationRatio,
+                            3
+                        ),
+                        status_priority = GetCheckStatusPriority(
+                            check.Status
+                        ),
+                        design_category = designCategory,
+                        is_not_required = isNotRequired,
+                        is_unknown = isUnknown,
+                        status_driven_failure = statusDrivenFailure,
+                        is_failing = isFailing,
+                        is_warning = isWarning,
+                        is_untested = isUntested,
+                        status_interpretation =
+                            GetCheckStatusInterpretation(
+                                check.Status,
+                                check.UtilizationRatio
+                            ),
+                        load_combination = check.LoadCombination,
+                        failure_reason = check.FailureReason,
+                        description = check.Description
+                    };
+
+                    allChecks.Add(row);
+                    return row;
+                })
+                .OrderByDescending(check => check.status_priority)
+                .ThenByDescending(check => check.utilization_ratio)
+                .ThenBy(check => check.check_type)
+                .ToList();
+
+            spanResults.Add(new
+            {
+                span = span.Name,
+                section = sectionInfo.Section,
+                section_type = sectionInfo.SectionType,
+                material_type = sectionInfo.MaterialType,
+                length_ft = Math.Round(sectionInfo.LengthFt, 2),
+
+                governing_check = new
+                {
+                    check_type = spanGoverning.CheckType,
+                    status = spanGoverning.Status,
+                    utilization_ratio = Math.Round(
+                        spanGoverning.UtilizationRatio,
+                        3
+                    ),
+                    status_priority = spanGoverning.StatusPriority,
+                    is_failing = spanGoverning.IsFailing,
+                    is_warning = spanGoverning.IsWarning,
+                    is_untested = spanGoverning.IsUntested,
+                    status_driven_failure =
+                        spanGoverning.StatusDrivenFailure,
+                    status_interpretation =
+                        spanGoverning.StatusInterpretation
+                },
+
+                check_count = formattedChecks.Count,
+                checks = formattedChecks
+            });
+        }
+
+        var failingChecks = allChecks
+            .Where(check => (bool)check.is_failing)
+            .OrderByDescending(check => (int)check.status_priority)
+            .ThenByDescending(check => (double)check.utilization_ratio)
+            .ToList();
+
+        var warningChecks = allChecks
+            .Where(check => (bool)check.is_warning)
+            .OrderByDescending(check => (double)check.utilization_ratio)
+            .ToList();
+
+        var nearLimitChecks = allChecks
+            .Where(check =>
+                !(bool)check.is_failing
+                && !(bool)check.is_warning
+                && !(bool)check.is_untested
+                && (double)check.utilization_ratio >= 0.90
+            )
+            .OrderByDescending(check => (double)check.utilization_ratio)
+            .ToList();
+
+        var passingChecks = allChecks
+            .Where(check =>
+                (string)check.design_category == "Passing"
+            )
+            .OrderByDescending(check => (double)check.utilization_ratio)
+            .ToList();
+
+        var notRequiredChecks = allChecks
+            .Where(check => (bool)check.is_not_required)
+            .ToList();
+
+        var unknownChecks = allChecks
+            .Where(check => (bool)check.is_unknown)
+            .ToList();
+
+        var untestedChecks = allChecks
+            .Where(check => (bool)check.is_untested)
+            .ToList();
+
+        var byStatus = allChecks
+            .GroupBy(check => (string)check.status)
+            .OrderBy(group => group.Key)
+            .Select(group => new
+            {
+                status = group.Key,
+                count = group.Count()
+            })
+            .ToList();
+
+        var byCheckType = allChecks
+            .GroupBy(check => (string)check.check_type)
+            .OrderBy(group => group.Key)
+            .Select(group => new
+            {
+                check_type = group.Key,
+                count = group.Count(),
+                failing_count = group.Count(check =>
+                    (bool)check.is_failing
+                ),
+                warning_count = group.Count(check =>
+                    (bool)check.is_warning
+                ),
+                maximum_utilization = Math.Round(
+                    group
+                        .Select(check =>
+                            (double)check.utilization_ratio
+                        )
+                        .DefaultIfEmpty(0)
+                        .Max(),
+                    3
+                )
+            })
+            .ToList();
+
+        bool memberIsFailing =
+            IsFailingCheckStatus(governingStatus)
+            || governingUc >= 1.0;
+
+        bool memberIsWarning =
+            IsWarningCheckStatus(governingStatus);
+
+        bool memberIsUntested =
+            governingUc == 0
+            && GetCheckStatusPriority(governingStatus) == 0;
+
+        string memberDesignCategory = GetDesignCategory(
+            memberIsFailing,
+            memberIsWarning,
+            memberIsUntested,
+            governingUc
+        );
+
+        string engineeringSummary;
+
+        if (memberIsFailing)
+        {
+            engineeringSummary =
+                $"Member {member.Name} is classified as failing. " +
+                $"The governing check is {governingCheckType} on span " +
+                $"{governingSpan}, with status {governingStatus} and " +
+                $"utilization ratio {Math.Round(governingUc, 3)}.";
+        }
+        else if (memberIsWarning)
+        {
+            engineeringSummary =
+                $"Member {member.Name} requires engineering review because " +
+                $"TSD reported Warning for the governing {governingCheckType} " +
+                $"check on span {governingSpan}.";
+        }
+        else if (memberDesignCategory == "Near Limit")
+        {
+            engineeringSummary =
+                $"Member {member.Name} is near its design limit. The governing " +
+                $"check is {governingCheckType} on span {governingSpan}, with " +
+                $"utilization ratio {Math.Round(governingUc, 3)}.";
+        }
+        else if (memberIsUntested)
+        {
+            engineeringSummary =
+                $"Member {member.Name} has no recognized governing design " +
+                "result or utilization ratio in the available TSD checks.";
+        }
+        else
+        {
+            engineeringSummary =
+                $"Member {member.Name} is passing based on the available TSD " +
+                $"design checks. The governing check is {governingCheckType} " +
+                $"on span {governingSpan}, with utilization ratio " +
+                $"{Math.Round(governingUc, 3)}.";
+        }
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            tool_version = "1.0",
+
+            member = member.Name,
+            member_type = InferMemberType(member.Name),
+            section = primarySection,
+            section_type = primarySectionType,
+            material_type = primaryMaterialType,
+
+            design_category = memberDesignCategory,
+            is_failing = memberIsFailing,
+            is_warning = memberIsWarning,
+            is_untested = memberIsUntested,
+
+            governing_check = new
+            {
+                span = governingSpan,
+                check_type = governingCheckType,
+                status = governingStatus,
+                utilization_ratio = Math.Round(governingUc, 3),
+                status_priority = governingPriority,
+                status_driven_failure =
+                    IsFailingCheckStatus(governingStatus)
+                    && governingUc < 1.0,
+                status_interpretation =
+                    GetCheckStatusInterpretation(
+                        governingStatus,
+                        governingUc
+                    )
+            },
+
+            summary = new
+            {
+                span_count = spanResults.Count,
+                total_check_count = allChecks.Count,
+                failing_check_count = failingChecks.Count,
+                warning_check_count = warningChecks.Count,
+                near_limit_check_count = nearLimitChecks.Count,
+                passing_check_count = passingChecks.Count,
+                not_required_check_count = notRequiredChecks.Count,
+                unknown_check_count = unknownChecks.Count,
+                untested_check_count = untestedChecks.Count
+            },
+
+            by_status = byStatus,
+            by_check_type = byCheckType,
+
+            engineering_summary = engineeringSummary,
+
+            review_note =
+                "A check with Fail or Beyond status is treated as failing even when its utilization ratio is below 1.0. Review detailed TSD messages before changing the member.",
+
+            failing_checks = failingChecks,
+            warning_checks = warningChecks,
+            near_limit_checks = nearLimitChecks,
+            not_required_checks = notRequiredChecks,
+            unknown_checks = unknownChecks,
+            untested_checks = untestedChecks,
+
+            all_checks = allChecks
+                .OrderByDescending(check => (int)check.status_priority)
+                .ThenByDescending(check => (double)check.utilization_ratio)
+                .ThenBy(check => (string)check.span)
+                .ThenBy(check => (string)check.check_type)
+                .ToList(),
+
+            spans = spanResults
+        }));
+    }
     else if (command == "get_tsd_member_design_summary")
     {
         if (args.Length < 2)
@@ -6362,6 +6775,28 @@ static string GetCheckStatusInterpretation(
     {
         return
             "TSD reported Pass.";
+    }
+
+    if (
+    status.Equals(
+        "NotRequired",
+        StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return
+            "TSD reported that this design check was not required for the current member or design condition.";
+    }
+
+    if (
+        status.Equals(
+            "Unknown",
+            StringComparison.OrdinalIgnoreCase
+        )
+    )
+    {
+        return
+            "TSD did not provide a recognized result for this design check.";
     }
 
     return

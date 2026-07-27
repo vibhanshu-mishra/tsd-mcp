@@ -92,6 +92,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {} }
     },
     {
+      name: "get_tsd_member_design_checks",
+      description: "Get every available TSD design check for a specific member, including governing check, utilization, status-driven failures, warnings, unknown checks, and checks that are not required",
+      inputSchema: {
+        type: "object",
+        properties: {
+          member: {
+            type: "string",
+            description: "Exact TSD member name, for example CBase149 or BFRM 1422"
+            }
+        },
+        required: ["member"]
+      }
+    },    
+    {
       name: "get_tsd_model_cost_estimate",
       description: "Estimate total steel material cost using calculated model tonnage and a user-provided cost per ton",
       inputSchema: {
@@ -173,7 +187,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     result = runBridge("get_member_details", member);
   } else if (name === "get_tsd_members_by_section") {
     const section = request.params.arguments?.section;
-    result = runBridge("get_members_by_section", section);
+      result = runBridge("get_members_by_section", section);
+  } else if (name === "get_tsd_member_design_checks") {
+      const member = request.params.arguments?.member;
+
+      if (typeof member !== "string" || member.trim() === "") {
+          result = {
+              error: "The member argument is required and must be a non-empty string."
+          };
+      } else {
+          result = runBridge(
+              "get_tsd_member_design_checks",
+              member.trim()
+          );
+      }
   } else if (name === "get_tsd_members_by_type") {
     const type = request.params.arguments?.type;
     result = runBridge("get_members_by_type", type);
