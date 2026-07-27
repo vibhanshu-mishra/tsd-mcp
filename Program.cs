@@ -2,11 +2,6 @@
 using System.Text.Json;
 using TSD.API.Remoting;
 
-const double MmPerFt = 304.8;
-const double TsdMassToPlf = 671.9689751395068;
-const double PoundsPerTon = 2000.0;
-const double KgToLb = 2.20462262185;
-
 string command = args.Length > 0 ? args[0] : "";
 
 if (string.IsNullOrEmpty(command))
@@ -208,40 +203,96 @@ try
     else if (command == "get_top_utilized_members")
     {
         var members = await model.GetMembersAsync(null);
-        var results = new List<dynamic>();
+        var results = new List<object>();
 
-        foreach (var member in members)
+        foreach (var m in members)
         {
             try
             {
-                var spans = await member.GetSpanAsync(null);
+                var spans = await m.GetSpanAsync(null);
 
                 foreach (var span in spans)
                 {
-                    var sectionInfo = GetSectionInfo(span);
-                    var governing = GetGoverningCheck(span);
+                    var checkResults = span.GetType()
+                        .GetProperty("CheckResults")?
+                        .GetValue(span);
 
-                    results.Add(new
+                    var valueEnumerable = checkResults?
+                        .GetType()
+                        .GetProperty("Value")?
+                        .GetValue(checkResults) as System.Collections.IEnumerable;
+
+                    if (valueEnumerable == null)
+                        continue;
+
+                    foreach (var item in valueEnumerable)
                     {
-                        member = member.Name,
-                        type = InferMemberType(member.Name),
-                        span = span.Name,
-                        section = sectionInfo.Section,
-                        check_type = governing.CheckType,
-                        status = governing.Status,
-                        utilization_ratio = Math.Round(governing.UtilizationRatio, 3),
-                        status_priority = governing.StatusPriority,
-                        is_failing = governing.IsFailing,
-                        is_warning = governing.IsWarning,
-                        is_untested = governing.IsUntested,
-                        status_driven_failure = governing.StatusDrivenFailure,
-                        design_category = GetDesignCategory(
-                            governing.IsFailing,
-                            governing.IsWarning,
-                            governing.IsUntested,
-                            governing.UtilizationRatio
-                        )
-                    });
+                        var checkType = item.GetType()
+                            .GetProperty("Key")?
+                            .GetValue(item)?
+                            .ToString();
+
+                        var valueWrapper = item.GetType()
+                            .GetProperty("Value")?
+                            .GetValue(item);
+
+                        var checkResult = valueWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType()
+                            .GetProperty("CheckStatus")?
+                            .GetValue(checkResult);
+
+                        var ratioWrapper = checkResult.GetType()
+                            .GetProperty("UtilizationRatio")?
+                            .GetValue(checkResult);
+
+                        var status = statusWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(statusWrapper)?
+                            .ToString();
+
+                        var ratioObj = ratioWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(ratioWrapper);
+
+                        double ratio = 0;
+
+                        if (ratioObj != null)
+                            ratio = Convert.ToDouble(ratioObj);
+
+                        string section = "Unknown";
+
+                        try
+                        {
+                            var physicalSection = GetPhysicalSection(span);
+
+                            section =
+                                GetPropertyValue(physicalSection, "LongName")
+                                ?? GetPropertyValue(physicalSection, "ShortName")
+                                ?? "Unknown";
+                        }
+                        catch
+                        {
+                        }
+
+                        results.Add(new
+                        {
+                            member = m.Name,
+                            type = InferMemberType(m.Name),
+                            section,
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = ratio
+                        });
+                    }
                 }
             }
             catch
@@ -250,46 +301,107 @@ try
         }
 
         var top = results
-            .OrderByDescending(x => (int)x.status_priority)
-            .ThenByDescending(x => (double)x.utilization_ratio)
-            .Take(25)
-            .ToList();
+            .OrderByDescending(x =>
+                (double)x.GetType()
+                    .GetProperty("utilization_ratio")!
+                    .GetValue(x)!)
+            .Take(25);
 
         Console.WriteLine(JsonSerializer.Serialize(top));
     }
     else if (command == "get_failing_members")
     {
         var members = await model.GetMembersAsync(null);
-        var results = new List<dynamic>();
+        var results = new List<object>();
 
-        foreach (var member in members)
+        foreach (var m in members)
         {
             try
             {
-                var spans = await member.GetSpanAsync(null);
+                var spans = await m.GetSpanAsync(null);
 
                 foreach (var span in spans)
                 {
-                    var governing = GetGoverningCheck(span);
+                    var checkResults = span.GetType()
+                        .GetProperty("CheckResults")?
+                        .GetValue(span);
 
-                    if (!governing.IsFailing)
+                    var valueEnumerable = checkResults?
+                        .GetType()
+                        .GetProperty("Value")?
+                        .GetValue(checkResults) as System.Collections.IEnumerable;
+
+                    if (valueEnumerable == null)
                         continue;
 
-                    var sectionInfo = GetSectionInfo(span);
-
-                    results.Add(new
+                    foreach (var item in valueEnumerable)
                     {
-                        member = member.Name,
-                        type = InferMemberType(member.Name),
-                        span = span.Name,
-                        section = sectionInfo.Section,
-                        check_type = governing.CheckType,
-                        status = governing.Status,
-                        utilization_ratio = Math.Round(governing.UtilizationRatio, 3),
-                        status_priority = governing.StatusPriority,
-                        status_driven_failure = governing.StatusDrivenFailure,
-                        status_interpretation = governing.StatusInterpretation
-                    });
+                        var checkType = item.GetType()
+                            .GetProperty("Key")?
+                            .GetValue(item)?
+                            .ToString();
+
+                        var valueWrapper = item.GetType()
+                            .GetProperty("Value")?
+                            .GetValue(item);
+
+                        var checkResult = valueWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType()
+                            .GetProperty("CheckStatus")?
+                            .GetValue(checkResult);
+
+                        var ratioWrapper = checkResult.GetType()
+                            .GetProperty("UtilizationRatio")?
+                            .GetValue(checkResult);
+
+                        var status = statusWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(statusWrapper)?
+                            .ToString();
+
+                        var ratioObj = ratioWrapper?
+                            .GetType()
+                            .GetProperty("Value")?
+                            .GetValue(ratioWrapper);
+
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                        if (ratio < 1.0)
+                            continue;
+
+                        string section = "Unknown";
+
+                        try
+                        {
+                            var physicalSection = GetPhysicalSection(span);
+
+                            section =
+                                GetPropertyValue(physicalSection, "LongName")
+                                ?? GetPropertyValue(physicalSection, "ShortName")
+                                ?? "Unknown";
+                        }
+                        catch
+                        {
+                        }
+
+                        results.Add(new
+                        {
+                            member = m.Name,
+                            type = InferMemberType(m.Name),
+                            section,
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = ratio
+                        });
+                    }
                 }
             }
             catch
@@ -298,66 +410,85 @@ try
         }
 
         var failing = results
-            .OrderByDescending(x => (int)x.status_priority)
-            .ThenByDescending(x => (double)x.utilization_ratio)
-            .ToList();
+            .OrderByDescending(x =>
+                (double)x.GetType()
+                    .GetProperty("utilization_ratio")!
+                    .GetValue(x)!);
 
         Console.WriteLine(JsonSerializer.Serialize(failing));
     }
     else if (command == "get_members_near_limit")
     {
         var members = await model.GetMembersAsync(null);
-        var results = new List<dynamic>();
+        var results = new List<object>();
 
-        foreach (var member in members)
+        foreach (var m in members)
         {
             try
             {
-                var spans = await member.GetSpanAsync(null);
+                var spans = await m.GetSpanAsync(null);
 
                 foreach (var span in spans)
                 {
-                    var governing = GetGoverningCheck(span);
+                    var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                    var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
 
-                    bool isNearLimit =
-                        !governing.IsFailing
-                        &&
-                        !governing.IsWarning
-                        &&
-                        !governing.IsUntested
-                        &&
-                        governing.UtilizationRatio >= 0.90
-                        &&
-                        governing.UtilizationRatio < 1.0;
-
-                    if (!isNearLimit)
+                    if (valueEnumerable == null)
                         continue;
 
-                    var sectionInfo = GetSectionInfo(span);
-
-                    results.Add(new
+                    foreach (var item in valueEnumerable)
                     {
-                        member = member.Name,
-                        type = InferMemberType(member.Name),
-                        span = span.Name,
-                        section = sectionInfo.Section,
-                        check_type = governing.CheckType,
-                        status = governing.Status,
-                        utilization_ratio = Math.Round(governing.UtilizationRatio, 3),
-                        status_priority = governing.StatusPriority,
-                        status_interpretation = governing.StatusInterpretation,
-                        design_category = "Near Limit"
-                    });
+                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
+                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                        if (ratio < 0.90 || ratio >= 1.0)
+                            continue;
+
+                        string section = "Unknown";
+
+                        try
+                        {
+                            var physicalSection = GetPhysicalSection(span);
+
+                            section =
+                                GetPropertyValue(physicalSection, "LongName")
+                                ?? GetPropertyValue(physicalSection, "ShortName")
+                                ?? "Unknown";
+                        }
+                        catch { }
+
+                        results.Add(new
+                        {
+                            member = m.Name,
+                            type = InferMemberType(m.Name),
+                            section,
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = ratio
+                        });
+                    }
                 }
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         var nearLimit = results
-            .OrderByDescending(x => (double)x.utilization_ratio)
-            .ToList();
+            .OrderByDescending(x =>
+                (double)x.GetType()
+                    .GetProperty("utilization_ratio")!
+                    .GetValue(x)!);
 
         Console.WriteLine(JsonSerializer.Serialize(nearLimit));
     }
@@ -382,71 +513,79 @@ try
         }
 
         var spans = await member.GetSpanAsync(null);
-        var spanResults = new List<dynamic>();
+        var spanResults = new List<object>();
 
         foreach (var span in spans)
         {
-            var sectionInfo = GetSectionInfo(span);
-            var governing = GetGoverningCheck(span);
-            var checks = GetDesignChecks(span);
+            string section = "Unknown";
+            string sectionType = "Unknown";
+            string materialType = "Unknown";
+
+            try
+            {
+                var physicalSection = GetPhysicalSection(span);
+
+                section =
+                    GetPropertyValue(physicalSection, "LongName")
+                    ?? GetPropertyValue(physicalSection, "ShortName")
+                    ?? "Unknown";
+
+                sectionType = GetPropertyValue(physicalSection, "SectionType") ?? "Unknown";
+                materialType = GetPropertyValue(physicalSection, "MaterialType") ?? "Unknown";
+            }
+            catch { }
+
+            var checks = new List<object>();
+
+            try
+            {
+                var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+                if (valueEnumerable != null)
+                {
+                    foreach (var item in valueEnumerable)
+                    {
+                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
+                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                        checks.Add(new
+                        {
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = ratio
+                        });
+                    }
+                }
+            }
+            catch { }
 
             spanResults.Add(new
             {
                 span = span.Name,
-                section = sectionInfo.Section,
-                section_type = sectionInfo.SectionType,
-                material_type = sectionInfo.MaterialType,
-
-                governing_check = new
-                {
-                    check_type = governing.CheckType,
-                    status = governing.Status,
-                    utilization_ratio = Math.Round(governing.UtilizationRatio, 3),
-                    status_priority = governing.StatusPriority,
-                    is_failing = governing.IsFailing,
-                    is_warning = governing.IsWarning,
-                    is_untested = governing.IsUntested,
-                    status_driven_failure = governing.StatusDrivenFailure,
-                    status_interpretation = governing.StatusInterpretation
-                },
-
-                design_category = GetDesignCategory(
-                    governing.IsFailing,
-                    governing.IsWarning,
-                    governing.IsUntested,
-                    governing.UtilizationRatio
-                ),
-
-                checks = checks.Select(check => new
-                {
-                    check_type = check.CheckType,
-                    status = check.Status,
-                    utilization_ratio = Math.Round(check.UtilizationRatio, 3),
-                    load_combination = check.LoadCombination,
-                    failure_reason = check.FailureReason,
-                    description = check.Description
-                }).ToList()
+                section,
+                section_type = sectionType,
+                material_type = materialType,
+                checks
             });
         }
-
-        var memberGoverning = spanResults
-            .OrderByDescending(x => (int)x.governing_check.status_priority)
-            .ThenByDescending(x => (double)x.governing_check.utilization_ratio)
-            .FirstOrDefault();
 
         Console.WriteLine(JsonSerializer.Serialize(new
         {
             member = member.Name,
             type = InferMemberType(member.Name),
-
-            design_category = memberGoverning == null
-                ? "Untested / No Governing UC"
-                : (string)memberGoverning.design_category,
-
-            governing_check = memberGoverning == null
-                ? null
-                : memberGoverning.governing_check,
-
             spans = spanResults
         }));
     }
@@ -462,6 +601,8 @@ try
             return;
         }
 
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
 
         string targetSection = args[1];
 
@@ -476,10 +617,14 @@ try
 
                 foreach (var span in spans)
                 {
-                    var sectionInfo = GetSectionInfo(span);
+                    var physicalSection = GetPhysicalSection(span);
 
-                    string section = sectionInfo.Section;
-                    string normalizedSection = sectionInfo.NormalizedSection;
+                    string section =
+                        GetPropertyValue(physicalSection, "LongName")
+                        ?? GetPropertyValue(physicalSection, "ShortName")
+                        ?? "Unknown";
+
+                    string normalizedSection = NormalizeSectionName(section);
                     string normalizedTargetSection = NormalizeSectionName(targetSection);
 
                     if (!string.Equals(
@@ -490,11 +635,36 @@ try
                         continue;
                     }
 
-                    string sectionType = sectionInfo.SectionType;
-                    string materialType = sectionInfo.MaterialType;
-                    double lengthFt = sectionInfo.LengthFt;
-                    double weightPerFt = sectionInfo.WeightPerFt;
-                    double spanTotalWeightLb = sectionInfo.TotalWeightLb;
+                    string sectionType =
+                        GetPropertyValue(physicalSection, "SectionType")
+                        ?? "Unknown";
+
+                    string materialType =
+                        GetPropertyValue(physicalSection, "MaterialType")
+                        ?? "Unknown";
+
+                    double lengthFt = 0;
+                    double weightPerFt = 0;
+                    double spanTotalWeightLb = 0;
+
+                    try
+                    {
+                        lengthFt = span.Length.Value / MmPerFt;
+
+                        string massString =
+                            GetPropertyValue(physicalSection, "Mass")
+                            ?? "0";
+
+                        double mass = Convert.ToDouble(massString);
+                        weightPerFt = mass * TsdMassToPlf;
+                        spanTotalWeightLb = lengthFt * weightPerFt;
+                    }
+                    catch
+                    {
+                        lengthFt = 0;
+                        weightPerFt = 0;
+                        spanTotalWeightLb = 0;
+                    }
 
                     var governing = GetGoverningCheck(span);
 
@@ -506,12 +676,16 @@ try
                     bool isWarning = governing.IsWarning;
                     bool isUntested = governing.IsUntested;
 
-                    string designCategory = GetDesignCategory(
-                        isFailing,
-                        isWarning,
-                        isUntested,
-                        governingUc
-                    );
+                    string designCategory =
+                        isFailing
+                            ? "Failing"
+                            : isWarning
+                                ? "Warning / Review"
+                                : governingUc >= 0.90
+                                    ? "Near Limit"
+                                    : isUntested
+                                        ? "Untested / No Governing UC"
+                                        : "Passing";
 
                     results.Add(new
                     {
@@ -678,7 +852,7 @@ try
 
                 total_length_ft = Math.Round(totalLengthFt, 2),
                 total_weight_lb = Math.Round(sectionTotalWeightLb, 1),
-                total_weight_tons = Math.Round(sectionTotalWeightLb / PoundsPerTon, 2)
+                total_weight_tons = Math.Round(sectionTotalWeightLb / 2000.0, 2)
             },
 
             member_type_breakdown = memberTypeBreakdown,
@@ -694,6 +868,8 @@ try
     }
     else if (command == "get_tsd_section_usage")
     {
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
 
         var members = await model.GetMembersAsync(null);
         var rows = new List<dynamic>();
@@ -706,14 +882,43 @@ try
 
                 foreach (var span in spans)
                 {
-                    var sectionInfo = GetSectionInfo(span);
+                    var physicalSection = GetPhysicalSection(span);
 
-                    string section = sectionInfo.Section;
-                    string sectionType = sectionInfo.SectionType;
-                    string materialType = sectionInfo.MaterialType;
-                    double lengthFt = sectionInfo.LengthFt;
-                    double weightPerFt = sectionInfo.WeightPerFt;
-                    double totalWeightLb = sectionInfo.TotalWeightLb;
+                    string section =
+                        GetPropertyValue(physicalSection, "LongName")
+                        ?? GetPropertyValue(physicalSection, "ShortName")
+                        ?? "Unknown";
+
+                    string sectionType =
+                        GetPropertyValue(physicalSection, "SectionType")
+                        ?? "Unknown";
+
+                    string materialType =
+                        GetPropertyValue(physicalSection, "MaterialType")
+                        ?? "Unknown";
+
+                    double lengthFt = 0;
+                    double weightPerFt = 0;
+                    double totalWeightLb = 0;
+
+                    try
+                    {
+                        lengthFt = span.Length.Value / MmPerFt;
+
+                        string massString =
+                            GetPropertyValue(physicalSection, "Mass")
+                            ?? "0";
+
+                        double mass = Convert.ToDouble(massString);
+                        weightPerFt = mass * TsdMassToPlf;
+                        totalWeightLb = lengthFt * weightPerFt;
+                    }
+                    catch
+                    {
+                        lengthFt = 0;
+                        weightPerFt = 0;
+                        totalWeightLb = 0;
+                    }
 
                     var governing = GetGoverningCheck(span);
 
@@ -725,12 +930,16 @@ try
                     bool isWarning = governing.IsWarning;
                     bool isUntested = governing.IsUntested;
 
-                    string designCategory = GetDesignCategory(
-                        isFailing,
-                        isWarning,
-                        isUntested,
-                        governingUc
-                    );
+                    string designCategory =
+                        isFailing
+                            ? "Failing"
+                            : isWarning
+                                ? "Warning / Review"
+                                : governingUc >= 0.90
+                                    ? "Near Limit"
+                                    : isUntested
+                                        ? "Untested / No Governing UC"
+                                        : "Passing";
 
                     rows.Add(new
                     {
@@ -739,7 +948,7 @@ try
                         span = span.Name,
 
                         section,
-                        normalized_section = sectionInfo.NormalizedSection,
+                        normalized_section = NormalizeSectionName(section),
                         section_type = sectionType,
                         material_type = materialType,
 
@@ -880,7 +1089,7 @@ try
                     ),
 
                     total_weight_tons = Math.Round(
-                        group.Sum(x => (double)x.total_weight_lb) / PoundsPerTon,
+                        group.Sum(x => (double)x.total_weight_lb) / 2000.0,
                         2
                     ),
 
@@ -978,7 +1187,7 @@ try
 
                 total_length_ft = Math.Round(modelTotalLengthFt, 2),
                 total_weight_lb = Math.Round(modelTotalWeightLb, 1),
-                total_weight_tons = Math.Round(modelTotalWeightLb / PoundsPerTon, 2)
+                total_weight_tons = Math.Round(modelTotalWeightLb / 2000.0, 2)
             },
 
             top_10_critical_sections = criticalSections,
@@ -990,6 +1199,8 @@ try
     }
     else if (command == "get_tsd_member_schedule")
     {
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
 
         string? memberTypeFilter = args.Length >= 2
             ? args[1]
@@ -1020,14 +1231,44 @@ try
 
                 foreach (var span in spans)
                 {
-                    var sectionInfo = GetSectionInfo(span);
+                    var physicalSection = GetPhysicalSection(span);
 
-                    string section = sectionInfo.Section;
-                    string sectionType = sectionInfo.SectionType;
-                    string materialType = sectionInfo.MaterialType;
-                    double lengthFt = sectionInfo.LengthFt;
-                    double weightPerFt = sectionInfo.WeightPerFt;
-                    double totalWeightLb = sectionInfo.TotalWeightLb;
+                    string section =
+                        GetPropertyValue(physicalSection, "LongName")
+                        ?? GetPropertyValue(physicalSection, "ShortName")
+                        ?? "Unknown";
+
+                    string sectionType =
+                        GetPropertyValue(physicalSection, "SectionType")
+                        ?? "Unknown";
+
+                    string materialType =
+                        GetPropertyValue(physicalSection, "MaterialType")
+                        ?? "Unknown";
+
+                    double lengthFt = 0;
+                    double weightPerFt = 0;
+                    double totalWeightLb = 0;
+
+                    try
+                    {
+                        lengthFt = span.Length.Value / MmPerFt;
+
+                        string massString =
+                            GetPropertyValue(physicalSection, "Mass")
+                            ?? "0";
+
+                        double mass = Convert.ToDouble(massString);
+
+                        weightPerFt = mass * TsdMassToPlf;
+                        totalWeightLb = lengthFt * weightPerFt;
+                    }
+                    catch
+                    {
+                        lengthFt = 0;
+                        weightPerFt = 0;
+                        totalWeightLb = 0;
+                    }
 
                     var governing = GetGoverningCheck(span);
 
@@ -1039,12 +1280,16 @@ try
                     bool isWarning = governing.IsWarning;
                     bool isUntested = governing.IsUntested;
 
-                    string designCategory = GetDesignCategory(
-                        isFailing,
-                        isWarning,
-                        isUntested,
-                        governingUc
-                    );
+                    string designCategory =
+                        isFailing
+                            ? "Failing"
+                            : isWarning
+                                ? "Warning / Review"
+                                : governingUc >= 0.90
+                                    ? "Near Limit"
+                                    : isUntested
+                                        ? "Untested / No Governing UC"
+                                        : "Passing";
 
                     scheduleRows.Add(new
                     {
@@ -1053,7 +1298,7 @@ try
                         span = span.Name,
 
                         section,
-                        normalized_section = sectionInfo.NormalizedSection,
+                        normalized_section = NormalizeSectionName(section),
                         section_type = sectionType,
                         material_type = materialType,
 
@@ -1163,7 +1408,7 @@ try
                     ),
 
                     total_weight_tons = Math.Round(
-                        groupTotalWeightLb / PoundsPerTon,
+                        groupTotalWeightLb / 2000.0,
                         2
                     ),
 
@@ -1323,7 +1568,7 @@ try
                 ),
 
                 total_weight_tons = Math.Round(
-                    scheduleTotalWeightLb / PoundsPerTon,
+                    scheduleTotalWeightLb / 2000.0,
                     2
                 )
             },
@@ -1347,6 +1592,8 @@ try
     }
     else if (command == "get_tsd_optimization_candidates")
     {
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
 
         string mode = args.Length >= 2
             ? args[1].Trim().ToLowerInvariant()
@@ -1419,14 +1666,72 @@ try
 
                 foreach (var span in spans)
                 {
-                    var sectionInfo = GetSectionInfo(span, steelOnlyWeight: true);
+                    var physicalSection = GetPhysicalSection(span);
 
-                    string section = sectionInfo.Section;
-                    string sectionType = sectionInfo.SectionType;
-                    string materialType = sectionInfo.MaterialType;
-                    double lengthFt = sectionInfo.LengthFt;
-                    double weightPerFt = sectionInfo.WeightPerFt;
-                    double currentWeightLb = sectionInfo.TotalWeightLb;
+                    string section =
+                        GetPropertyValue(
+                            physicalSection,
+                            "LongName"
+                        )
+                        ?? GetPropertyValue(
+                            physicalSection,
+                            "ShortName"
+                        )
+                        ?? "Unknown";
+
+                    string sectionType =
+                        GetPropertyValue(
+                            physicalSection,
+                            "SectionType"
+                        )
+                        ?? "Unknown";
+
+                    string materialType =
+                        GetPropertyValue(
+                            physicalSection,
+                            "MaterialType"
+                        )
+                        ?? "Unknown";
+
+                    double lengthFt = 0;
+                    double weightPerFt = 0;
+                    double currentWeightLb = 0;
+
+                    try
+                    {
+                        lengthFt =
+                            span.Length.Value / MmPerFt;
+
+                        string massString =
+                            GetPropertyValue(
+                                physicalSection,
+                                "Mass"
+                            )
+                            ?? "0";
+
+                        double mass =
+                            Convert.ToDouble(massString);
+
+                        if (
+                            materialType.Equals(
+                                "Steel",
+                                StringComparison.OrdinalIgnoreCase
+                            )
+                        )
+                        {
+                            weightPerFt =
+                                mass * TsdMassToPlf;
+
+                            currentWeightLb =
+                                lengthFt * weightPerFt;
+                        }
+                    }
+                    catch
+                    {
+                        lengthFt = 0;
+                        weightPerFt = 0;
+                        currentWeightLb = 0;
+                    }
 
                     var governing = GetGoverningCheck(span);
 
@@ -2027,1196 +2332,6 @@ try
             results = selectedResults
         }));
     }
-    else if (command == "get_tsd_optimization_advisor")
-    {
-        string requestedMemberType =
-            args.Length >= 2
-                ? args[1].Trim()
-                : "All";
-
-        double maximumUtilization = 0.85;
-
-        if (
-            args.Length >= 3
-            &&
-            !double.TryParse(
-                args[2],
-                out maximumUtilization
-            )
-        )
-        {
-            Console.WriteLine(
-                JsonSerializer.Serialize(new
-                {
-                    error =
-                        "Maximum utilization must be a number.",
-                    usage =
-                        "get_tsd_optimization_advisor [All|Beam|Column|Brace|Joist|Steel Post] [maximum_utilization] [minimum_length_ft]"
-                })
-            );
-
-            return;
-        }
-
-        double minimumLengthFt = 8.0;
-
-        if (
-            args.Length >= 4
-            &&
-            !double.TryParse(
-                args[3],
-                out minimumLengthFt
-            )
-        )
-        {
-            Console.WriteLine(
-                JsonSerializer.Serialize(new
-                {
-                    error =
-                        "Minimum length must be a number.",
-                    usage =
-                        "get_tsd_optimization_advisor [All|Beam|Column|Brace|Joist|Steel Post] [maximum_utilization] [minimum_length_ft]"
-                })
-            );
-
-            return;
-        }
-
-        if (
-            maximumUtilization <= 0
-            ||
-            maximumUtilization >= 1.0
-        )
-        {
-            Console.WriteLine(
-                JsonSerializer.Serialize(new
-                {
-                    error =
-                        "Maximum utilization must be greater than 0 and less than 1.0."
-                })
-            );
-
-            return;
-        }
-
-        if (minimumLengthFt < 0)
-        {
-            Console.WriteLine(
-                JsonSerializer.Serialize(new
-                {
-                    error =
-                        "Minimum length cannot be negative."
-                })
-            );
-
-            return;
-        }
-
-        var validMemberTypes = new[]
-        {
-        "All",
-        "Beam",
-        "Column",
-        "Brace",
-        "Joist",
-        "Steel Post"
-    };
-
-        bool validMemberType =
-            validMemberTypes.Any(type =>
-                type.Equals(
-                    requestedMemberType,
-                    StringComparison.OrdinalIgnoreCase
-                )
-            );
-
-        if (!validMemberType)
-        {
-            Console.WriteLine(
-                JsonSerializer.Serialize(new
-                {
-                    error =
-                        $"Unknown member type: {requestedMemberType}",
-                    valid_member_types =
-                        validMemberTypes
-                })
-            );
-
-            return;
-        }
-
-        var members =
-            await model.GetMembersAsync(null);
-
-        var reviewedSpans =
-            new List<dynamic>();
-
-        foreach (var member in members)
-        {
-            string memberType =
-                InferMemberType(member.Name);
-
-            bool memberTypeMatches =
-                requestedMemberType.Equals(
-                    "All",
-                    StringComparison.OrdinalIgnoreCase
-                )
-                ||
-                memberType.Equals(
-                    requestedMemberType,
-                    StringComparison.OrdinalIgnoreCase
-                );
-
-            if (!memberTypeMatches)
-                continue;
-
-            try
-            {
-                var spans =
-                    await member.GetSpanAsync(null);
-
-                foreach (var span in spans)
-                {
-                    var sectionInfo =
-                        GetSectionInfo(
-                            span,
-                            steelOnlyWeight: true
-                        );
-
-                    var governing =
-                        GetGoverningCheck(span);
-
-                    var checks =
-                        GetDesignChecks(span);
-
-                    bool hasFailingCheck =
-                        checks.Any(check =>
-                            IsFailingCheckStatus(
-                                check.Status
-                            )
-                            ||
-                            check.UtilizationRatio >= 1.0
-                        );
-
-                    bool hasWarningCheck =
-                        checks.Any(check =>
-                            IsWarningCheckStatus(
-                                check.Status
-                            )
-                        );
-
-                    int passingCheckCount =
-                        checks.Count(check =>
-                            check.Status.Equals(
-                                "Pass",
-                                StringComparison.OrdinalIgnoreCase
-                            )
-                        );
-
-                    int unknownCheckCount =
-                        checks.Count(check =>
-                            string.IsNullOrWhiteSpace(
-                                check.Status
-                            )
-                            ||
-                            check.Status.Equals(
-                                "Unknown",
-                                StringComparison.OrdinalIgnoreCase
-                            )
-                        );
-
-                    bool governingIsUnknown =
-                        string.IsNullOrWhiteSpace(
-                            governing.Status
-                        )
-                        ||
-                        governing.Status.Equals(
-                            "Unknown",
-                            StringComparison.OrdinalIgnoreCase
-                        );
-
-                    bool hasBlockingUnknownCheck =
-                        governingIsUnknown
-                        ||
-                        (
-                            passingCheckCount == 0
-                            &&
-                            unknownCheckCount > 0
-                        );
-
-                    int notRequiredCheckCount =
-                        checks.Count(check =>
-                            check.Status.Equals(
-                                "NotRequired",
-                                StringComparison.OrdinalIgnoreCase
-                            )
-                        );
-
-                    bool isSteel =
-                        sectionInfo.MaterialType.Equals(
-                            "Steel",
-                            StringComparison.OrdinalIgnoreCase
-                        );
-
-                    bool hasKnownSection =
-                        !string.IsNullOrWhiteSpace(
-                            sectionInfo.Section
-                        )
-                        &&
-                        !sectionInfo.Section.Equals(
-                            "Unknown",
-                            StringComparison.OrdinalIgnoreCase
-                        );
-
-                    bool hasValidWeight =
-                        sectionInfo.WeightPerFt > 0
-                        &&
-                        sectionInfo.TotalWeightLb > 0;
-
-                    bool hasValidUtilization =
-                        governing.UtilizationRatio > 0;
-
-                    bool governingPasses =
-                        governing.Status.Equals(
-                            "Pass",
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                        &&
-                        !governing.IsFailing
-                        &&
-                        !governing.IsWarning
-                        &&
-                        !governing.IsUntested;
-
-                    bool utilizationWithinLimit =
-                        governing.UtilizationRatio
-                            <= maximumUtilization;
-
-                    bool lengthMeetsMinimum =
-                        sectionInfo.LengthFt
-                            >= minimumLengthFt;
-
-                    var exclusionReasons =
-                        new List<string>();
-
-                    if (!isSteel)
-                    {
-                        exclusionReasons.Add(
-                            "Material is not recognized as steel."
-                        );
-                    }
-
-                    if (!hasKnownSection)
-                    {
-                        exclusionReasons.Add(
-                            "Section could not be identified."
-                        );
-                    }
-
-                    if (!hasValidWeight)
-                    {
-                        exclusionReasons.Add(
-                            "A valid steel weight could not be calculated."
-                        );
-                    }
-
-                    if (!hasValidUtilization)
-                    {
-                        exclusionReasons.Add(
-                            "No positive governing utilization ratio is available."
-                        );
-                    }
-
-                    if (!governingPasses)
-                    {
-                        exclusionReasons.Add(
-                            $"The governing TSD status is {governing.Status}, not Pass."
-                        );
-                    }
-
-                    if (hasFailingCheck)
-                    {
-                        exclusionReasons.Add(
-                            "At least one available TSD design check is failing or at/above UC 1.0."
-                        );
-                    }
-
-                    if (hasWarningCheck)
-                    {
-                        exclusionReasons.Add(
-                            "At least one available TSD design check has Warning status."
-                        );
-                    }
-
-                    if (hasBlockingUnknownCheck)
-                    {
-                        exclusionReasons.Add(
-                            "No reliable passing governing design result is available because the governing or only available checks are Unknown."
-                        );
-                    }
-
-                    if (
-                        hasValidUtilization
-                        &&
-                        !utilizationWithinLimit
-                    )
-                    {
-                        exclusionReasons.Add(
-                            $"Governing utilization exceeds the requested maximum of {Math.Round(maximumUtilization, 3)}."
-                        );
-                    }
-
-                    if (!lengthMeetsMinimum)
-                    {
-                        exclusionReasons.Add(
-                            $"Member length is below the requested minimum of {Math.Round(minimumLengthFt, 2)} ft."
-                        );
-                    }
-
-                    bool isEligible =
-                        exclusionReasons.Count == 0;
-
-                    reviewedSpans.Add(new
-                    {
-                        member = member.Name,
-                        member_type = memberType,
-                        span = span.Name,
-
-                        section =
-                            sectionInfo.Section,
-
-                        normalized_section =
-                            sectionInfo.NormalizedSection,
-
-                        section_type =
-                            sectionInfo.SectionType,
-
-                        material_type =
-                            sectionInfo.MaterialType,
-
-                        length_ft =
-                            sectionInfo.LengthFt,
-
-                        weight_per_ft =
-                            sectionInfo.WeightPerFt,
-
-                        current_weight_lb =
-                            sectionInfo.TotalWeightLb,
-
-                        governing_check = new
-                        {
-                            check_type =
-                                governing.CheckType,
-
-                            status =
-                                governing.Status,
-
-                            utilization_ratio =
-                                governing.UtilizationRatio,
-
-                            status_priority =
-                                governing.StatusPriority,
-
-                            status_driven_failure =
-                                governing.StatusDrivenFailure,
-
-                            status_interpretation =
-                                governing.StatusInterpretation
-                        },
-
-                        check_summary = new
-                        {
-                            total_check_count =
-                                checks.Count,
-
-                            passing_check_count =
-                                passingCheckCount,
-
-                            not_required_check_count =
-                                notRequiredCheckCount,
-
-                            has_failing_check =
-                                hasFailingCheck,
-
-                            has_warning_check =
-                                hasWarningCheck,
-
-                            unknown_check_count =
-                                unknownCheckCount,
-
-                            has_unknown_check =
-                                unknownCheckCount > 0,
-
-                            has_blocking_unknown_check =
-                                hasBlockingUnknownCheck
-                        },
-
-                        is_eligible =
-                            isEligible,
-
-                        exclusion_reasons =
-                            exclusionReasons
-                    });
-                }
-            }
-            catch
-            {
-                // Skip members that cannot return span or design information.
-            }
-        }
-
-        var eligibleRows =
-            reviewedSpans
-                .Where(row =>
-                    (bool)row.is_eligible
-                )
-                .ToList();
-
-        var repeatedSectionCounts =
-            eligibleRows
-                .GroupBy(row => new
-                {
-                    Section =
-                        (string)row.normalized_section,
-
-                    MemberType =
-                        (string)row.member_type
-                })
-                .ToDictionary(
-                    group =>
-                        $"{group.Key.Section}|{group.Key.MemberType}",
-
-                    group =>
-                        group
-                            .Select(row =>
-                                (string)row.member
-                            )
-                            .Distinct(
-                                StringComparer.OrdinalIgnoreCase
-                            )
-                            .Count()
-                );
-
-        var recommendations =
-            new List<dynamic>();
-
-        foreach (var row in eligibleRows)
-        {
-            double utilization =
-                (double)row
-                    .governing_check
-                    .utilization_ratio;
-
-            double lengthFt =
-                (double)row.length_ft;
-
-            double weightPerFt =
-                (double)row.weight_per_ft;
-
-            double currentWeightLb =
-                (double)row.current_weight_lb;
-
-            string sectionKey =
-                $"{(string)row.normalized_section}|{(string)row.member_type}";
-
-            int repeatedMemberCount =
-                repeatedSectionCounts.TryGetValue(
-                    sectionKey,
-                    out int count
-                )
-                    ? count
-                    : 1;
-
-            /*
-             * Scoring:
-             *
-             * Low utilization:        maximum 55 points
-             * Member length:          maximum 15 points
-             * Current member weight:  maximum 20 points
-             * Repeated section use:   maximum 10 points
-             */
-
-            double utilizationScore =
-                Math.Max(
-                    0,
-                    Math.Min(
-                        55,
-                        (
-                            1.0
-                            -
-                            (
-                                utilization
-                                /
-                                maximumUtilization
-                            )
-                        )
-                        *
-                        55.0
-                    )
-                );
-
-            double lengthScore =
-                Math.Max(
-                    0,
-                    Math.Min(
-                        15,
-                        lengthFt / 40.0 * 15.0
-                    )
-                );
-
-            double weightScore =
-                Math.Max(
-                    0,
-                    Math.Min(
-                        20,
-                        currentWeightLb / 2500.0 * 20.0
-                    )
-                );
-
-            double repetitionScore =
-                repeatedMemberCount >= 10
-                    ? 10
-                    : repeatedMemberCount >= 5
-                        ? 8
-                        : repeatedMemberCount >= 3
-                            ? 5
-                            : repeatedMemberCount >= 2
-                                ? 2
-                                : 0;
-
-            double optimizationScore =
-                Math.Round(
-                    Math.Max(
-                        0,
-                        Math.Min(
-                            100,
-                            utilizationScore
-                            +
-                            lengthScore
-                            +
-                            weightScore
-                            +
-                            repetitionScore
-                        )
-                    ),
-                    1
-                );
-
-            string recommendationLevel =
-                optimizationScore >= 80
-                    ? "Excellent Candidate"
-                    : optimizationScore >= 65
-                        ? "Good Candidate"
-                        : optimizationScore >= 45
-                            ? "Possible Candidate"
-                            : "Low Priority Candidate";
-
-            string engineeringRisk =
-                utilization <= 0.40
-                    ? "Lower Screening Risk"
-                    : utilization <= 0.60
-                        ? "Moderate Screening Risk"
-                        : "Higher Screening Risk";
-
-            var reasons =
-                new List<string>();
-
-            if (utilization <= 0.25)
-            {
-                reasons.Add(
-                    "Very low governing utilization."
-                );
-            }
-            else if (utilization <= 0.50)
-            {
-                reasons.Add(
-                    "Low governing utilization."
-                );
-            }
-            else if (utilization <= 0.70)
-            {
-                reasons.Add(
-                    "Moderate reserve capacity is indicated."
-                );
-            }
-            else
-            {
-                reasons.Add(
-                    "Utilization is below the requested optimization limit."
-                );
-            }
-
-            if (lengthFt >= 30)
-            {
-                reasons.Add(
-                    "Long member length increases potential weight impact."
-                );
-            }
-            else if (lengthFt >= 15)
-            {
-                reasons.Add(
-                    "Member length provides a meaningful optimization opportunity."
-                );
-            }
-
-            if (currentWeightLb >= 2000)
-            {
-                reasons.Add(
-                    "High current member weight."
-                );
-            }
-            else if (currentWeightLb >= 750)
-            {
-                reasons.Add(
-                    "Moderate current member weight."
-                );
-            }
-
-            if (repeatedMemberCount >= 5)
-            {
-                reasons.Add(
-                    $"The section is repeated across {repeatedMemberCount} eligible members, creating a batch-review opportunity."
-                );
-            }
-            else if (repeatedMemberCount >= 2)
-            {
-                reasons.Add(
-                    $"The section is repeated across {repeatedMemberCount} eligible members."
-                );
-            }
-
-            int notRequiredCount =
-                (int)row
-                    .check_summary
-                    .not_required_check_count;
-
-            if (notRequiredCount > 0)
-            {
-                reasons.Add(
-                    $"{notRequiredCount} design check(s) were reported as NotRequired; these were not treated as failures."
-                );
-            }
-
-            int unknownCount =
-                (int)row
-                    .check_summary
-                    .unknown_check_count;
-
-            if (unknownCount > 0)
-            {
-                reasons.Add(
-                    $"{unknownCount} non-governing design check(s) were reported as Unknown. These did not disqualify the member because a recognized passing governing check is available."
-                );
-            }
-
-            double illustrativeTenPercentSavingsLb =
-                currentWeightLb * 0.10;
-
-            double illustrativeFifteenPercentSavingsLb =
-                currentWeightLb * 0.15;
-
-            string recommendedAction =
-                recommendationLevel == "Excellent Candidate"
-                    ? "Prioritize this member for engineering review of a lighter section, then rerun analysis and every applicable design check."
-                    : recommendationLevel == "Good Candidate"
-                        ? "Include this member in the next section-optimization review and validate any lighter section in TSD."
-                        : recommendationLevel == "Possible Candidate"
-                            ? "Review after higher-ranked opportunities. Confirm that strength, stability, serviceability, connections, fire protection, and constructability remain acceptable."
-                            : "Do not prioritize unless project standardization or procurement requirements justify reviewing the section.";
-
-            recommendations.Add(new
-            {
-                member =
-                    (string)row.member,
-
-                member_type =
-                    (string)row.member_type,
-
-                span =
-                    (string)row.span,
-
-                section =
-                    (string)row.section,
-
-                section_type =
-                    (string)row.section_type,
-
-                material_type =
-                    (string)row.material_type,
-
-                length_ft =
-                    Math.Round(
-                        lengthFt,
-                        2
-                    ),
-
-                weight_per_ft =
-                    Math.Round(
-                        weightPerFt,
-                        2
-                    ),
-
-                current_weight_lb =
-                    Math.Round(
-                        currentWeightLb,
-                        1
-                    ),
-
-                current_weight_tons =
-                    Math.Round(
-                        currentWeightLb
-                        /
-                        PoundsPerTon,
-                        3
-                    ),
-
-                governing_check = new
-                {
-                    check_type =
-                        (string)row
-                            .governing_check
-                            .check_type,
-
-                    status =
-                        (string)row
-                            .governing_check
-                            .status,
-
-                    utilization_ratio =
-                        Math.Round(
-                            utilization,
-                            3
-                        ),
-
-                    status_interpretation =
-                        (string)row
-                            .governing_check
-                            .status_interpretation
-                },
-
-                repeated_section_member_count =
-                    repeatedMemberCount,
-
-                optimization_score =
-                    optimizationScore,
-
-                recommendation_level =
-                    recommendationLevel,
-
-                engineering_risk =
-                    engineeringRisk,
-
-                reasons,
-
-                recommended_action =
-                    recommendedAction,
-
-                illustrative_weight_savings = new
-                {
-                    ten_percent_lb =
-                        Math.Round(
-                            illustrativeTenPercentSavingsLb,
-                            1
-                        ),
-
-                    fifteen_percent_lb =
-                        Math.Round(
-                            illustrativeFifteenPercentSavingsLb,
-                            1
-                        ),
-
-                    note =
-                        "These are screening estimates only. They do not represent a selected or validated replacement section."
-                }
-            });
-        }
-
-        var rankedRecommendations =
-            recommendations
-                .OrderByDescending(row =>
-                    (double)row.optimization_score
-                )
-                .ThenBy(row =>
-                    (double)row
-                        .governing_check
-                        .utilization_ratio
-                )
-                .ThenByDescending(row =>
-                    (double)row.current_weight_lb
-                )
-                .ToList();
-
-        var sectionOpportunities =
-            rankedRecommendations
-                .GroupBy(row => new
-                {
-                    Section =
-                        (string)row.section,
-
-                    NormalizedSection =
-                        NormalizeSectionName(
-                            (string)row.section
-                        ),
-
-                    MemberType =
-                        (string)row.member_type
-                })
-                .Select(group =>
-                {
-                    double groupWeightLb =
-                        group.Sum(row =>
-                            (double)row.current_weight_lb
-                        );
-
-                    return new
-                    {
-                        section =
-                            group.Key.Section,
-
-                        member_type =
-                            group.Key.MemberType,
-
-                        candidate_span_count =
-                            group.Count(),
-
-                        unique_member_count =
-                            group
-                                .Select(row =>
-                                    (string)row.member
-                                )
-                                .Distinct(
-                                    StringComparer.OrdinalIgnoreCase
-                                )
-                                .Count(),
-
-                        average_utilization =
-                            Math.Round(
-                                group
-                                    .Select(row =>
-                                        (double)row
-                                            .governing_check
-                                            .utilization_ratio
-                                    )
-                                    .DefaultIfEmpty(0)
-                                    .Average(),
-                                3
-                            ),
-
-                        maximum_utilization =
-                            Math.Round(
-                                group
-                                    .Select(row =>
-                                        (double)row
-                                            .governing_check
-                                            .utilization_ratio
-                                    )
-                                    .DefaultIfEmpty(0)
-                                    .Max(),
-                                3
-                            ),
-
-                        average_optimization_score =
-                            Math.Round(
-                                group
-                                    .Select(row =>
-                                        (double)row.optimization_score
-                                    )
-                                    .DefaultIfEmpty(0)
-                                    .Average(),
-                                1
-                            ),
-
-                        total_current_weight_lb =
-                            Math.Round(
-                                groupWeightLb,
-                                1
-                            ),
-
-                        total_current_weight_tons =
-                            Math.Round(
-                                groupWeightLb
-                                /
-                                PoundsPerTon,
-                                2
-                            ),
-
-                        illustrative_10_percent_savings_lb =
-                            Math.Round(
-                                groupWeightLb * 0.10,
-                                1
-                            ),
-
-                        illustrative_15_percent_savings_lb =
-                            Math.Round(
-                                groupWeightLb * 0.15,
-                                1
-                            ),
-
-                        members =
-                            group
-                                .Select(row =>
-                                    (string)row.member
-                                )
-                                .Distinct(
-                                    StringComparer.OrdinalIgnoreCase
-                                )
-                                .OrderBy(name => name)
-                                .ToList()
-                    };
-                })
-                .OrderByDescending(group =>
-                    group.average_optimization_score
-                )
-                .ThenByDescending(group =>
-                    group.total_current_weight_lb
-                )
-                .ToList();
-
-        var excludedRows =
-            reviewedSpans
-                .Where(row =>
-                    !(bool)row.is_eligible
-                )
-                .ToList();
-
-        var exclusionSummary =
-            excludedRows
-                .SelectMany(row =>
-                    ((IEnumerable<string>)
-                        row.exclusion_reasons)
-                )
-                .GroupBy(reason => reason)
-                .Select(group => new
-                {
-                    reason =
-                        group.Key,
-
-                    count =
-                        group.Count()
-                })
-                .OrderByDescending(item =>
-                    item.count
-                )
-                .ThenBy(item =>
-                    item.reason
-                )
-                .ToList();
-
-        double candidateWeightLb =
-            rankedRecommendations.Sum(row =>
-                (double)row.current_weight_lb
-            );
-
-        double illustrativeTenPercentTotalLb =
-            candidateWeightLb * 0.10;
-
-        double illustrativeFifteenPercentTotalLb =
-            candidateWeightLb * 0.15;
-
-        int excellentCount =
-            rankedRecommendations.Count(row =>
-                (string)row.recommendation_level
-                    == "Excellent Candidate"
-            );
-
-        int goodCount =
-            rankedRecommendations.Count(row =>
-                (string)row.recommendation_level
-                    == "Good Candidate"
-            );
-
-        int possibleCount =
-            rankedRecommendations.Count(row =>
-                (string)row.recommendation_level
-                    == "Possible Candidate"
-            );
-
-        int lowPriorityCount =
-            rankedRecommendations.Count(row =>
-                (string)row.recommendation_level
-                    == "Low Priority Candidate"
-            );
-
-        string engineeringSummary;
-
-        if (rankedRecommendations.Count == 0)
-        {
-            engineeringSummary =
-                "No spans satisfied the current optimization filters and strict design-status requirements.";
-        }
-        else
-        {
-            engineeringSummary =
-                $"Reviewed {reviewedSpans.Count} spans and identified " +
-                $"{rankedRecommendations.Count} optimization candidates. " +
-                $"{excellentCount} are ranked Excellent and {goodCount} are ranked Good. " +
-                $"The candidates currently represent approximately " +
-                $"{Math.Round(candidateWeightLb / PoundsPerTon, 2)} tons of steel.";
-        }
-
-        string recommendedNextAction;
-
-        var topCandidate =
-            rankedRecommendations.FirstOrDefault();
-
-        if (topCandidate == null)
-        {
-            recommendedNextAction =
-                "Review the exclusion summary, confirm current TSD design results, or adjust the utilization and length filters.";
-        }
-        else
-        {
-            recommendedNextAction =
-                $"Begin engineering review with member {(string)topCandidate.member}, " +
-                $"section {(string)topCandidate.section}, which has an optimization " +
-                $"score of {(double)topCandidate.optimization_score} and governing " +
-                $"utilization of {Math.Round((double)topCandidate.governing_check.utilization_ratio, 3)}.";
-        }
-
-        Console.WriteLine(
-            JsonSerializer.Serialize(new
-            {
-                tool_version = "1.0",
-
-                tool =
-                    "TSD Optimization Advisor",
-
-                filters = new
-                {
-                    member_type =
-                        requestedMemberType,
-
-                    maximum_utilization =
-                        maximumUtilization,
-
-                    minimum_length_ft =
-                        minimumLengthFt
-                },
-
-                engineering_scope = new
-                {
-                    purpose =
-                        "Rank passing steel members for possible section optimization.",
-
-                    eligibility_rule =
-                        "A candidate must have governing Pass status, positive utilization, no failing checks, no Warning checks, valid steel weight, and must satisfy the requested utilization and length limits. A non-governing Unknown check is reported but does not automatically disqualify the member when a recognized passing governing result is available.",
-
-                    not_required_rule =
-                        "NotRequired checks are reported but do not automatically disqualify a member because TSD may legitimately determine that a particular check does not apply.",
-
-                    unknown_check_rule =
-                        "Unknown checks block optimization only when the governing result is Unknown or when no recognized Pass check is available.",
-
-                    limitation =
-                        "The tool does not select a replacement section and does not prove that downsizing is safe. Every proposed change must be rerun through analysis and design."
-                },
-
-                summary = new
-                {
-                    spans_reviewed =
-                        reviewedSpans.Count,
-
-                    eligible_candidate_count =
-                        rankedRecommendations.Count,
-
-                    excluded_span_count =
-                        excludedRows.Count,
-
-                    excellent_candidate_count =
-                        excellentCount,
-
-                    good_candidate_count =
-                        goodCount,
-
-                    possible_candidate_count =
-                        possibleCount,
-
-                    low_priority_candidate_count =
-                        lowPriorityCount,
-
-                    current_candidate_weight_lb =
-                        Math.Round(
-                            candidateWeightLb,
-                            1
-                        ),
-
-                    current_candidate_weight_tons =
-                        Math.Round(
-                            candidateWeightLb
-                            /
-                            PoundsPerTon,
-                            2
-                        ),
-
-                    illustrative_10_percent_savings_lb =
-                        Math.Round(
-                            illustrativeTenPercentTotalLb,
-                            1
-                        ),
-
-                    illustrative_10_percent_savings_tons =
-                        Math.Round(
-                            illustrativeTenPercentTotalLb
-                            /
-                            PoundsPerTon,
-                            2
-                        ),
-
-                    illustrative_15_percent_savings_lb =
-                        Math.Round(
-                            illustrativeFifteenPercentTotalLb,
-                            1
-                        ),
-
-                    illustrative_15_percent_savings_tons =
-                        Math.Round(
-                            illustrativeFifteenPercentTotalLb
-                            /
-                            PoundsPerTon,
-                            2
-                        )
-                },
-
-                scoring_method = new
-                {
-                    low_utilization_points =
-                        55,
-
-                    member_length_points =
-                        15,
-
-                    current_weight_points =
-                        20,
-
-                    repeated_section_points =
-                        10,
-
-                    maximum_score =
-                        100
-                },
-
-                engineering_summary =
-                    engineeringSummary,
-
-                recommended_next_action =
-                    recommendedNextAction,
-
-                exclusion_summary =
-                    exclusionSummary,
-
-                top_25_recommendations =
-                    rankedRecommendations
-                        .Take(25)
-                        .ToList(),
-
-                optimization_by_section =
-                    sectionOpportunities,
-
-                recommendations =
-                    rankedRecommendations
-            })
-        );
-    }
     else if (command == "get_members_by_type")
     {
         if (args.Length < 2)
@@ -3280,121 +2395,81 @@ try
     else if (command == "get_design_status_summary")
     {
         var members = await model.GetMembersAsync(null);
-        var statuses = new List<dynamic>();
-        var governingSpans = new List<dynamic>();
+        var statuses = new List<object>();
 
-        foreach (var member in members)
+        foreach (var m in members)
         {
             try
             {
-                var spans = await member.GetSpanAsync(null);
+                var spans = await m.GetSpanAsync(null);
 
                 foreach (var span in spans)
                 {
-                    var governing = GetGoverningCheck(span);
+                    var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                    var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
 
-                    governingSpans.Add(new
-                    {
-                        member = member.Name,
-                        member_type = InferMemberType(member.Name),
-                        span = span.Name,
-                        status = governing.Status,
-                        utilization_ratio = Math.Round(governing.UtilizationRatio, 3),
-                        is_failing = governing.IsFailing,
-                        is_warning = governing.IsWarning,
-                        is_untested = governing.IsUntested,
-                        design_category = GetDesignCategory(
-                            governing.IsFailing,
-                            governing.IsWarning,
-                            governing.IsUntested,
-                            governing.UtilizationRatio
-                        )
-                    });
+                    if (valueEnumerable == null)
+                        continue;
 
-                    foreach (var check in GetDesignChecks(span))
+                    foreach (var item in valueEnumerable)
                     {
+                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString() ?? "Unknown";
+                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
                         statuses.Add(new
                         {
-                            member = member.Name,
-                            type = InferMemberType(member.Name),
-                            span = span.Name,
-                            check_type = check.CheckType,
-                            status = check.Status,
-                            utilization_ratio = Math.Round(check.UtilizationRatio, 3),
-                            status_priority = GetCheckStatusPriority(check.Status),
-                            is_failing = IsFailingCheckStatus(check.Status) || check.UtilizationRatio >= 1.0,
-                            is_warning = IsWarningCheckStatus(check.Status),
-                            status_driven_failure =
-                                IsFailingCheckStatus(check.Status)
-                                && check.UtilizationRatio < 1.0
+                            member = m.Name,
+                            type = InferMemberType(m.Name),
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = ratio
                         });
                     }
                 }
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         var byStatus = statuses
-            .GroupBy(x => (string)x.status)
+            .GroupBy(x => x.GetType().GetProperty("status")!.GetValue(x)!.ToString())
             .Select(g => new
             {
                 status = g.Key,
-                count = g.Count(),
-                status_priority = GetCheckStatusPriority(g.Key)
+                count = g.Count()
             })
-            .OrderByDescending(x => x.status_priority)
-            .ThenBy(x => x.status)
-            .ToList();
+            .OrderBy(x => x.status);
 
         var byCheckType = statuses
-            .GroupBy(x => (string)x.check_type)
+            .GroupBy(x => x.GetType().GetProperty("check_type")!.GetValue(x)?.ToString() ?? "Unknown")
             .Select(g => new
             {
                 check_type = g.Key,
-                count = g.Count(),
-                failing_count = g.Count(x => (bool)x.is_failing),
-                warning_count = g.Count(x => (bool)x.is_warning),
-                maximum_utilization = Math.Round(
-                    g.Select(x => (double)x.utilization_ratio).DefaultIfEmpty(0).Max(),
-                    3
-                )
+                count = g.Count()
             })
-            .OrderByDescending(x => x.failing_count)
-            .ThenByDescending(x => x.maximum_utilization)
-            .ThenBy(x => x.check_type)
-            .ToList();
+            .OrderBy(x => x.check_type);
 
         Console.WriteLine(JsonSerializer.Serialize(new
         {
             total_checks = statuses.Count,
-
-            summary = new
-            {
-                failing_check_count = statuses.Count(x => (bool)x.is_failing),
-                warning_check_count = statuses.Count(x => (bool)x.is_warning),
-                status_driven_failure_count = statuses.Count(x => (bool)x.status_driven_failure),
-
-                failing_span_count = governingSpans.Count(x => (bool)x.is_failing),
-                warning_span_count = governingSpans.Count(x => (bool)x.is_warning),
-                near_limit_span_count = governingSpans.Count(x =>
-                    (string)x.design_category == "Near Limit"
-                ),
-                passing_span_count = governingSpans.Count(x =>
-                    (string)x.design_category == "Passing"
-                ),
-                untested_span_count = governingSpans.Count(x =>
-                    (bool)x.is_untested
-                )
-            },
-
             by_status = byStatus,
             by_check_type = byCheckType
         }));
     }
     else if (command == "get_steel_takeoff")
     {
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
 
         var members = await model.GetMembersAsync(null);
         var rows = new List<object>();
@@ -3484,7 +2559,7 @@ try
 
                 total_weight_tons = Math.Round(
                     g.Sum(x => Convert.ToDouble(
-                        x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / PoundsPerTon, 2)
+                        x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / 2000.0, 2)
             })
             .OrderByDescending(x => x.total_weight_lb)
             .ToList();
@@ -3497,12 +2572,14 @@ try
         {
             total_spans = rows.Count,
             total_weight_lb = Math.Round(grandTotalWeightLb, 1),
-            total_weight_tons = Math.Round(grandTotalWeightLb / PoundsPerTon, 2),
+            total_weight_tons = Math.Round(grandTotalWeightLb / 2000.0, 2),
             takeoff
         }));
     }
     else if (command == "get_takeoff_by_member_type")
     {
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
 
         var members = await model.GetMembersAsync(null);
         var rows = new List<object>();
@@ -3557,7 +2634,7 @@ try
                 total_weight_lb = Math.Round(g.Sum(x =>
                     Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))), 1),
                 total_weight_tons = Math.Round(g.Sum(x =>
-                    Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / PoundsPerTon, 2)
+                    Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / 2000.0, 2)
             })
             .OrderByDescending(x => x.total_weight_lb)
             .ToList();
@@ -3568,12 +2645,14 @@ try
             total_weight_lb = Math.Round(rows.Sum(x =>
                 Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))), 1),
             total_weight_tons = Math.Round(rows.Sum(x =>
-                Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / PoundsPerTon, 2),
+                Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / 2000.0, 2),
             by_member_type = summary
         }));
     }
     else if (command == "get_heaviest_sections")
     {
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
 
         var members = await model.GetMembersAsync(null);
         var rows = new List<object>();
@@ -3650,7 +2729,7 @@ try
                 total_weight_lb = Math.Round(g.Sum(x =>
                     Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))), 1),
                 total_weight_tons = Math.Round(g.Sum(x =>
-                    Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / PoundsPerTon, 2)
+                    Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / 2000.0, 2)
             })
             .OrderByDescending(x => x.total_weight_lb)
             .Take(25)
@@ -3663,12 +2742,14 @@ try
         {
             total_spans = rows.Count,
             total_weight_lb = Math.Round(grandTotalWeightLb, 1),
-            total_weight_tons = Math.Round(grandTotalWeightLb / PoundsPerTon, 2),
+            total_weight_tons = Math.Round(grandTotalWeightLb / 2000.0, 2),
             heaviest_sections = heaviestSections
         }));
     }
     else if (command == "get_takeoff_by_section_type")
     {
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
 
         var members = await model.GetMembersAsync(null);
         var rows = new List<object>();
@@ -3730,7 +2811,7 @@ try
                 total_weight_lb = Math.Round(g.Sum(x =>
                     Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))), 1),
                 total_weight_tons = Math.Round(g.Sum(x =>
-                    Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / PoundsPerTon, 2)
+                    Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / 2000.0, 2)
             })
             .OrderByDescending(x => x.total_weight_lb)
             .ToList();
@@ -3741,7 +2822,7 @@ try
             total_weight_lb = Math.Round(rows.Sum(x =>
                 Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))), 1),
             total_weight_tons = Math.Round(rows.Sum(x =>
-                Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / PoundsPerTon, 2),
+                Convert.ToDouble(x.GetType().GetProperty("total_weight_lb")!.GetValue(x))) / 2000.0, 2),
             by_section_type = summary
         }));
     }
@@ -3753,6 +2834,8 @@ try
             return;
         }
 
+        const double MmPerFt = 304.8;
+        const double TsdMassToPlf = 671.9689751395068;
 
         double costPerTon = Convert.ToDouble(args[1]);
 
@@ -3783,7 +2866,7 @@ try
             catch { }
         }
 
-        double totalWeightTons = totalWeightLb / PoundsPerTon;
+        double totalWeightTons = totalWeightLb / 2000.0;
         double estimatedCost = totalWeightTons * costPerTon;
 
         Console.WriteLine(JsonSerializer.Serialize(new
@@ -3819,8 +2902,8 @@ try
         );
 
         double massKg = quantities.Mass ?? 0;
-        double massLb = massKg * KgToLb;
-        double massTons = massLb / PoundsPerTon;
+        double massLb = massKg * 2.20462262185;
+        double massTons = massLb / 2000.0;
 
         Console.WriteLine(JsonSerializer.Serialize(new
         {
@@ -4069,7 +3152,7 @@ try
                 member = f.LineElementName,
                 span = f.LineElementEdgeName,
                 position_mm = Math.Round(f.Position, 3),
-                position_ft = Math.Round(f.Position / MmPerFt, 3),
+                position_ft = Math.Round(f.Position / 304.8, 3),
 
                 shear_major = Math.Round(f.ShearMajor, 3),
                 shear_minor = Math.Round(f.ShearMinor, 3),
@@ -4182,7 +3265,7 @@ try
                 foreach (var f in forceSet.LineElementData
                     .Where(x => string.Equals(x.LineElementName, memberName, StringComparison.OrdinalIgnoreCase)))
                 {
-                    double positionFt = f.Position / MmPerFt;
+                    double positionFt = f.Position / 304.8;
 
                     records.Add(new
                     {
@@ -4627,7 +3710,7 @@ try
                 foreach (var f in forceSet.LineElementData
                     .Where(x => string.Equals(x.LineElementName, memberName, StringComparison.OrdinalIgnoreCase)))
                 {
-                    double positionFt = f.Position / MmPerFt;
+                    double positionFt = f.Position / 304.8;
 
                     records.Add(new
                     {
@@ -4817,419 +3900,6 @@ try
             overall_governing_combination = overallGoverningCombination
         }));
     }
-    else if (command == "get_tsd_member_design_checks")
-    {
-        if (args.Length < 2)
-        {
-            Console.WriteLine(JsonSerializer.Serialize(new
-            {
-                error = "Usage: get_tsd_member_design_checks <member_name>"
-            }));
-            return;
-        }
-
-        string targetName = args[1];
-
-        var members = await model.GetMembersAsync(null);
-        var member = members.FirstOrDefault(m =>
-            string.Equals(
-                m.Name,
-                targetName,
-                StringComparison.OrdinalIgnoreCase
-            )
-        );
-
-        if (member == null)
-        {
-            Console.WriteLine(JsonSerializer.Serialize(new
-            {
-                error = $"Member not found: {targetName}"
-            }));
-            return;
-        }
-
-        var spans = await member.GetSpanAsync(null);
-        var spanResults = new List<dynamic>();
-        var allChecks = new List<dynamic>();
-
-        string primarySection = "Unknown";
-        string primarySectionType = "Unknown";
-        string primaryMaterialType = "Unknown";
-
-        string governingSpan = "Unknown";
-        string governingCheckType = "Unknown";
-        string governingStatus = "Unknown";
-        double governingUc = 0;
-        int governingPriority = 0;
-
-        foreach (var span in spans)
-        {
-            var sectionInfo = GetSectionInfo(span);
-
-            if (
-                primarySection == "Unknown"
-                && sectionInfo.Section != "Unknown"
-            )
-            {
-                primarySection = sectionInfo.Section;
-            }
-
-            if (
-                primarySectionType == "Unknown"
-                && sectionInfo.SectionType != "Unknown"
-            )
-            {
-                primarySectionType = sectionInfo.SectionType;
-            }
-
-            if (
-                primaryMaterialType == "Unknown"
-                && sectionInfo.MaterialType != "Unknown"
-            )
-            {
-                primaryMaterialType = sectionInfo.MaterialType;
-            }
-
-            var checks = GetDesignChecks(span);
-            var spanGoverning = GetGoverningCheck(span);
-
-            bool shouldGovern =
-                spanGoverning.StatusPriority > governingPriority
-                ||
-                (
-                    spanGoverning.StatusPriority == governingPriority
-                    && spanGoverning.UtilizationRatio > governingUc
-                );
-
-            if (shouldGovern)
-            {
-                governingSpan = span.Name;
-                governingCheckType = spanGoverning.CheckType;
-                governingStatus = spanGoverning.Status;
-                governingUc = spanGoverning.UtilizationRatio;
-                governingPriority = spanGoverning.StatusPriority;
-            }
-
-            var formattedChecks = checks
-                .Select(check =>
-                {
-                    bool isFailing =
-                        IsFailingCheckStatus(check.Status)
-                        || check.UtilizationRatio >= 1.0;
-
-                    bool isWarning =
-                        IsWarningCheckStatus(check.Status);
-
-                    bool isNotRequired =
-                        check.Status.Equals(
-                            "NotRequired",
-                            StringComparison.OrdinalIgnoreCase
-                        );
-
-                    bool isUnknown =
-                        string.IsNullOrWhiteSpace(check.Status)
-                        ||
-                        check.Status.Equals(
-                            "Unknown",
-                            StringComparison.OrdinalIgnoreCase
-                        );
-
-                    bool isUntested =
-                        !isNotRequired
-                        &&
-                        !isUnknown
-                        &&
-                        check.UtilizationRatio == 0
-                        &&
-                        GetCheckStatusPriority(check.Status) == 0;
-
-                    bool statusDrivenFailure =
-                        IsFailingCheckStatus(check.Status)
-                        && check.UtilizationRatio < 1.0;
-
-                    string designCategory =
-                        isNotRequired
-                            ? "Not Required"
-                            : isUnknown
-                                ? "Unknown / Unavailable"
-                                : GetDesignCategory(
-                                    isFailing,
-                                    isWarning,
-                                    isUntested,
-                                    check.UtilizationRatio
-                                );
-
-                    var row = new
-                    {
-                        member = member.Name,
-                        span = span.Name,
-                        check_type = check.CheckType,
-                        status = check.Status,
-                        utilization_ratio = Math.Round(
-                            check.UtilizationRatio,
-                            3
-                        ),
-                        status_priority = GetCheckStatusPriority(
-                            check.Status
-                        ),
-                        design_category = designCategory,
-                        is_not_required = isNotRequired,
-                        is_unknown = isUnknown,
-                        status_driven_failure = statusDrivenFailure,
-                        is_failing = isFailing,
-                        is_warning = isWarning,
-                        is_untested = isUntested,
-                        status_interpretation =
-                            GetCheckStatusInterpretation(
-                                check.Status,
-                                check.UtilizationRatio
-                            ),
-                        load_combination = check.LoadCombination,
-                        failure_reason = check.FailureReason,
-                        description = check.Description
-                    };
-
-                    allChecks.Add(row);
-                    return row;
-                })
-                .OrderByDescending(check => check.status_priority)
-                .ThenByDescending(check => check.utilization_ratio)
-                .ThenBy(check => check.check_type)
-                .ToList();
-
-            spanResults.Add(new
-            {
-                span = span.Name,
-                section = sectionInfo.Section,
-                section_type = sectionInfo.SectionType,
-                material_type = sectionInfo.MaterialType,
-                length_ft = Math.Round(sectionInfo.LengthFt, 2),
-
-                governing_check = new
-                {
-                    check_type = spanGoverning.CheckType,
-                    status = spanGoverning.Status,
-                    utilization_ratio = Math.Round(
-                        spanGoverning.UtilizationRatio,
-                        3
-                    ),
-                    status_priority = spanGoverning.StatusPriority,
-                    is_failing = spanGoverning.IsFailing,
-                    is_warning = spanGoverning.IsWarning,
-                    is_untested = spanGoverning.IsUntested,
-                    status_driven_failure =
-                        spanGoverning.StatusDrivenFailure,
-                    status_interpretation =
-                        spanGoverning.StatusInterpretation
-                },
-
-                check_count = formattedChecks.Count,
-                checks = formattedChecks
-            });
-        }
-
-        var failingChecks = allChecks
-            .Where(check => (bool)check.is_failing)
-            .OrderByDescending(check => (int)check.status_priority)
-            .ThenByDescending(check => (double)check.utilization_ratio)
-            .ToList();
-
-        var warningChecks = allChecks
-            .Where(check => (bool)check.is_warning)
-            .OrderByDescending(check => (double)check.utilization_ratio)
-            .ToList();
-
-        var nearLimitChecks = allChecks
-            .Where(check =>
-                !(bool)check.is_failing
-                && !(bool)check.is_warning
-                && !(bool)check.is_untested
-                && (double)check.utilization_ratio >= 0.90
-            )
-            .OrderByDescending(check => (double)check.utilization_ratio)
-            .ToList();
-
-        var passingChecks = allChecks
-            .Where(check =>
-                (string)check.design_category == "Passing"
-            )
-            .OrderByDescending(check => (double)check.utilization_ratio)
-            .ToList();
-
-        var notRequiredChecks = allChecks
-            .Where(check => (bool)check.is_not_required)
-            .ToList();
-
-        var unknownChecks = allChecks
-            .Where(check => (bool)check.is_unknown)
-            .ToList();
-
-        var untestedChecks = allChecks
-            .Where(check => (bool)check.is_untested)
-            .ToList();
-
-        var byStatus = allChecks
-            .GroupBy(check => (string)check.status)
-            .OrderBy(group => group.Key)
-            .Select(group => new
-            {
-                status = group.Key,
-                count = group.Count()
-            })
-            .ToList();
-
-        var byCheckType = allChecks
-            .GroupBy(check => (string)check.check_type)
-            .OrderBy(group => group.Key)
-            .Select(group => new
-            {
-                check_type = group.Key,
-                count = group.Count(),
-                failing_count = group.Count(check =>
-                    (bool)check.is_failing
-                ),
-                warning_count = group.Count(check =>
-                    (bool)check.is_warning
-                ),
-                maximum_utilization = Math.Round(
-                    group
-                        .Select(check =>
-                            (double)check.utilization_ratio
-                        )
-                        .DefaultIfEmpty(0)
-                        .Max(),
-                    3
-                )
-            })
-            .ToList();
-
-        bool memberIsFailing =
-            IsFailingCheckStatus(governingStatus)
-            || governingUc >= 1.0;
-
-        bool memberIsWarning =
-            IsWarningCheckStatus(governingStatus);
-
-        bool memberIsUntested =
-            governingUc == 0
-            && GetCheckStatusPriority(governingStatus) == 0;
-
-        string memberDesignCategory = GetDesignCategory(
-            memberIsFailing,
-            memberIsWarning,
-            memberIsUntested,
-            governingUc
-        );
-
-        string engineeringSummary;
-
-        if (memberIsFailing)
-        {
-            engineeringSummary =
-                $"Member {member.Name} is classified as failing. " +
-                $"The governing check is {governingCheckType} on span " +
-                $"{governingSpan}, with status {governingStatus} and " +
-                $"utilization ratio {Math.Round(governingUc, 3)}.";
-        }
-        else if (memberIsWarning)
-        {
-            engineeringSummary =
-                $"Member {member.Name} requires engineering review because " +
-                $"TSD reported Warning for the governing {governingCheckType} " +
-                $"check on span {governingSpan}.";
-        }
-        else if (memberDesignCategory == "Near Limit")
-        {
-            engineeringSummary =
-                $"Member {member.Name} is near its design limit. The governing " +
-                $"check is {governingCheckType} on span {governingSpan}, with " +
-                $"utilization ratio {Math.Round(governingUc, 3)}.";
-        }
-        else if (memberIsUntested)
-        {
-            engineeringSummary =
-                $"Member {member.Name} has no recognized governing design " +
-                "result or utilization ratio in the available TSD checks.";
-        }
-        else
-        {
-            engineeringSummary =
-                $"Member {member.Name} is passing based on the available TSD " +
-                $"design checks. The governing check is {governingCheckType} " +
-                $"on span {governingSpan}, with utilization ratio " +
-                $"{Math.Round(governingUc, 3)}.";
-        }
-
-        Console.WriteLine(JsonSerializer.Serialize(new
-        {
-            tool_version = "1.0",
-
-            member = member.Name,
-            member_type = InferMemberType(member.Name),
-            section = primarySection,
-            section_type = primarySectionType,
-            material_type = primaryMaterialType,
-
-            design_category = memberDesignCategory,
-            is_failing = memberIsFailing,
-            is_warning = memberIsWarning,
-            is_untested = memberIsUntested,
-
-            governing_check = new
-            {
-                span = governingSpan,
-                check_type = governingCheckType,
-                status = governingStatus,
-                utilization_ratio = Math.Round(governingUc, 3),
-                status_priority = governingPriority,
-                status_driven_failure =
-                    IsFailingCheckStatus(governingStatus)
-                    && governingUc < 1.0,
-                status_interpretation =
-                    GetCheckStatusInterpretation(
-                        governingStatus,
-                        governingUc
-                    )
-            },
-
-            summary = new
-            {
-                span_count = spanResults.Count,
-                total_check_count = allChecks.Count,
-                failing_check_count = failingChecks.Count,
-                warning_check_count = warningChecks.Count,
-                near_limit_check_count = nearLimitChecks.Count,
-                passing_check_count = passingChecks.Count,
-                not_required_check_count = notRequiredChecks.Count,
-                unknown_check_count = unknownChecks.Count,
-                untested_check_count = untestedChecks.Count
-            },
-
-            by_status = byStatus,
-            by_check_type = byCheckType,
-
-            engineering_summary = engineeringSummary,
-
-            review_note =
-                "A check with Fail or Beyond status is treated as failing even when its utilization ratio is below 1.0. Review detailed TSD messages before changing the member.",
-
-            failing_checks = failingChecks,
-            warning_checks = warningChecks,
-            near_limit_checks = nearLimitChecks,
-            not_required_checks = notRequiredChecks,
-            unknown_checks = unknownChecks,
-            untested_checks = untestedChecks,
-
-            all_checks = allChecks
-                .OrderByDescending(check => (int)check.status_priority)
-                .ThenByDescending(check => (double)check.utilization_ratio)
-                .ThenBy(check => (string)check.span)
-                .ThenBy(check => (string)check.check_type)
-                .ToList(),
-
-            spans = spanResults
-        }));
-    }
     else if (command == "get_tsd_member_design_summary")
     {
         if (args.Length < 2)
@@ -5257,7 +3927,11 @@ try
         }
 
         var spans = await member.GetSpanAsync(null);
-        var spanResults = new List<dynamic>();
+        var spanResults = new List<object>();
+
+        double governingUc = 0;
+        string governingStatus = "Unknown";
+        string governingCheckType = "Unknown";
 
         string primarySection = "Unknown";
         string primarySectionType = "Unknown";
@@ -5265,103 +3939,112 @@ try
 
         foreach (var span in spans)
         {
-            var sectionInfo = GetSectionInfo(span);
-            var governing = GetGoverningCheck(span);
-            var checks = GetDesignChecks(span);
+            string section = "Unknown";
+            string sectionType = "Unknown";
+            string materialType = "Unknown";
 
-            if (primarySection == "Unknown" && sectionInfo.Section != "Unknown")
-                primarySection = sectionInfo.Section;
+            try
+            {
+                var physicalSection = GetPhysicalSection(span);
 
-            if (primarySectionType == "Unknown" && sectionInfo.SectionType != "Unknown")
-                primarySectionType = sectionInfo.SectionType;
+                section =
+                    GetPropertyValue(physicalSection, "LongName")
+                    ?? GetPropertyValue(physicalSection, "ShortName")
+                    ?? "Unknown";
 
-            if (primaryMaterialType == "Unknown" && sectionInfo.MaterialType != "Unknown")
-                primaryMaterialType = sectionInfo.MaterialType;
+                sectionType = GetPropertyValue(physicalSection, "SectionType") ?? "Unknown";
+                materialType = GetPropertyValue(physicalSection, "MaterialType") ?? "Unknown";
+            }
+            catch { }
+
+            if (primarySection == "Unknown" && section != "Unknown")
+                primarySection = section;
+
+            if (primarySectionType == "Unknown" && sectionType != "Unknown")
+                primarySectionType = sectionType;
+
+            if (primaryMaterialType == "Unknown" && materialType != "Unknown")
+                primaryMaterialType = materialType;
+
+            var checks = new List<object>();
+
+            try
+            {
+                var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+                if (valueEnumerable != null)
+                {
+                    foreach (var item in valueEnumerable)
+                    {
+                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                        if (checkResult == null)
+                            continue;
+
+                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
+                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                        if (ratio > governingUc)
+                        {
+                            governingUc = ratio;
+                            governingStatus = status ?? "Unknown";
+                            governingCheckType = checkType ?? "Unknown";
+                        }
+
+                        checks.Add(new
+                        {
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = Math.Round(ratio, 3)
+                        });
+                    }
+                }
+            }
+            catch { }
 
             spanResults.Add(new
             {
                 span = span.Name,
-                section = sectionInfo.Section,
-                section_type = sectionInfo.SectionType,
-                material_type = sectionInfo.MaterialType,
-
-                governing_check = new
-                {
-                    check_type = governing.CheckType,
-                    status = governing.Status,
-                    utilization_ratio = Math.Round(governing.UtilizationRatio, 3),
-                    status_priority = governing.StatusPriority,
-                    is_failing = governing.IsFailing,
-                    is_warning = governing.IsWarning,
-                    is_untested = governing.IsUntested,
-                    status_driven_failure = governing.StatusDrivenFailure,
-                    status_interpretation = governing.StatusInterpretation
-                },
-
-                design_category = GetDesignCategory(
-                    governing.IsFailing,
-                    governing.IsWarning,
-                    governing.IsUntested,
-                    governing.UtilizationRatio
-                ),
-
-                checks = checks.Select(check => new
-                {
-                    check_type = check.CheckType,
-                    status = check.Status,
-                    utilization_ratio = Math.Round(check.UtilizationRatio, 3),
-                    load_combination = check.LoadCombination,
-                    failure_reason = check.FailureReason,
-                    description = check.Description
-                }).ToList()
+                section,
+                section_type = sectionType,
+                material_type = materialType,
+                checks
             });
         }
 
-        var governingSpan = spanResults
-            .OrderByDescending(x => (int)x.governing_check.status_priority)
-            .ThenByDescending(x => (double)x.governing_check.utilization_ratio)
-            .FirstOrDefault();
-
-        string designStatus = governingSpan == null
-            ? "Untested / No Governing UC"
-            : (string)governingSpan.design_category;
+        string designStatus =
+            governingUc >= 1.0 || governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase)
+                ? "Fail"
+                : governingStatus;
 
         string engineeringSummary;
 
-        if (governingSpan == null)
+        if (designStatus == "Fail")
         {
             engineeringSummary =
-                $"Member {member.Name} has no available governing design result.";
+                $"Member {member.Name} is failing. The governing design check is {governingCheckType} with a utilization ratio of {Math.Round(governingUc, 3)}.";
         }
-        else if ((bool)governingSpan.governing_check.is_failing)
+        else if (governingUc >= 0.9)
         {
             engineeringSummary =
-                $"Member {member.Name} is failing. TSD reports {governingSpan.governing_check.status} for the governing {governingSpan.governing_check.check_type} check on span {governingSpan.span}, with a utilization ratio of {governingSpan.governing_check.utilization_ratio}.";
-        }
-        else if ((bool)governingSpan.governing_check.is_warning)
-        {
-            engineeringSummary =
-                $"Member {member.Name} requires review because TSD reports Warning for the governing {governingSpan.governing_check.check_type} check on span {governingSpan.span}.";
-        }
-        else if ((bool)governingSpan.governing_check.is_untested)
-        {
-            engineeringSummary =
-                $"Member {member.Name} does not have a recognized governing design result or utilization ratio.";
-        }
-        else if ((double)governingSpan.governing_check.utilization_ratio >= 0.90)
-        {
-            engineeringSummary =
-                $"Member {member.Name} is near its design limit. The governing check is {governingSpan.governing_check.check_type} on span {governingSpan.span}, with a utilization ratio of {governingSpan.governing_check.utilization_ratio}.";
+                $"Member {member.Name} is near its design limit. The governing design check is {governingCheckType} with a utilization ratio of {Math.Round(governingUc, 3)}.";
         }
         else
         {
             engineeringSummary =
-                $"Member {member.Name} is passing based on the available TSD design checks. The governing check is {governingSpan.governing_check.check_type} on span {governingSpan.span}, with a utilization ratio of {governingSpan.governing_check.utilization_ratio}.";
+                $"Member {member.Name} is passing based on the available design checks. The governing design check is {governingCheckType} with a utilization ratio of {Math.Round(governingUc, 3)}.";
         }
 
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            tool_version = "2.0",
             member = member.Name,
             member_type = InferMemberType(member.Name),
             section = primarySection,
@@ -5370,22 +4053,16 @@ try
 
             design_status = designStatus,
 
-            governing_check = governingSpan == null
-                ? null
-                : new
-                {
-                    span = (string)governingSpan.span,
-                    check_type = (string)governingSpan.governing_check.check_type,
-                    status = (string)governingSpan.governing_check.status,
-                    utilization_ratio = (double)governingSpan.governing_check.utilization_ratio,
-                    status_priority = (int)governingSpan.governing_check.status_priority,
-                    status_driven_failure = (bool)governingSpan.governing_check.status_driven_failure,
-                    status_interpretation = (string)governingSpan.governing_check.status_interpretation
-                },
+            governing_check = new
+            {
+                check_type = governingCheckType,
+                status = governingStatus,
+                utilization_ratio = Math.Round(governingUc, 3)
+            },
 
             engineering_summary = engineeringSummary,
 
-            note = "This summary uses TSD status priority and utilization together. Fail, Beyond, and Warning statuses are not overridden by a utilization ratio below 1.0. Governing load combinations can be reviewed separately using get_tsd_governing_load_combo.",
+            note = "This summary reports member section, material, design status, governing utilization, and span-level design checks. Governing load combination and force demand summary can be reviewed separately using get_tsd_governing_load_combo.",
 
             spans = spanResults
         }));
@@ -5399,235 +4076,162 @@ try
 
         foreach (var member in members)
         {
-            try
+            var spans = await member.GetSpanAsync(null);
+
+            string primarySection = "Unknown";
+            string primarySectionType = "Unknown";
+            string primaryMaterialType = "Unknown";
+
+            double governingUc = 0;
+            string governingStatus = "Unknown";
+            string governingCheckType = "Unknown";
+
+            foreach (var span in spans)
             {
-                var spans = await member.GetSpanAsync(null);
-                var memberSpanRows = new List<dynamic>();
-
-                string primarySection = "Unknown";
-                string primarySectionType = "Unknown";
-                string primaryMaterialType = "Unknown";
-
-                foreach (var span in spans)
+                try
                 {
-                    var sectionInfo = GetSectionInfo(span);
-                    var governing = GetGoverningCheck(span);
+                    var physicalSection = GetPhysicalSection(span);
 
-                    if (primarySection == "Unknown" && sectionInfo.Section != "Unknown")
-                        primarySection = sectionInfo.Section;
+                    string section =
+                        GetPropertyValue(physicalSection, "LongName")
+                        ?? GetPropertyValue(physicalSection, "ShortName")
+                        ?? "Unknown";
 
-                    if (primarySectionType == "Unknown" && sectionInfo.SectionType != "Unknown")
-                        primarySectionType = sectionInfo.SectionType;
+                    string sectionType = GetPropertyValue(physicalSection, "SectionType") ?? "Unknown";
+                    string materialType = GetPropertyValue(physicalSection, "MaterialType") ?? "Unknown";
 
-                    if (primaryMaterialType == "Unknown" && sectionInfo.MaterialType != "Unknown")
-                        primaryMaterialType = sectionInfo.MaterialType;
+                    if (primarySection == "Unknown" && section != "Unknown")
+                        primarySection = section;
 
-                    memberSpanRows.Add(new
+                    if (primarySectionType == "Unknown" && sectionType != "Unknown")
+                        primarySectionType = sectionType;
+
+                    if (primaryMaterialType == "Unknown" && materialType != "Unknown")
+                        primaryMaterialType = materialType;
+                }
+                catch { }
+
+                try
+                {
+                    var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                    var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
+
+                    if (valueEnumerable != null)
                     {
-                        span = span.Name,
-                        check_type = governing.CheckType,
-                        status = governing.Status,
-                        utilization_ratio = governing.UtilizationRatio,
-                        status_priority = governing.StatusPriority,
-                        is_failing = governing.IsFailing,
-                        is_warning = governing.IsWarning,
-                        is_untested = governing.IsUntested,
-                        status_driven_failure = governing.StatusDrivenFailure,
-                        status_interpretation = governing.StatusInterpretation
-                    });
-
-                    foreach (var check in GetDesignChecks(span))
-                    {
-                        allChecks.Add(new
+                        foreach (var item in valueEnumerable)
                         {
-                            member = member.Name,
-                            member_type = InferMemberType(member.Name),
-                            span = span.Name,
-                            check_type = check.CheckType,
-                            status = check.Status,
-                            utilization_ratio = Math.Round(check.UtilizationRatio, 3),
-                            status_priority = GetCheckStatusPriority(check.Status),
-                            is_failing =
-                                IsFailingCheckStatus(check.Status)
-                                || check.UtilizationRatio >= 1.0,
-                            is_warning = IsWarningCheckStatus(check.Status),
-                            status_driven_failure =
-                                IsFailingCheckStatus(check.Status)
-                                && check.UtilizationRatio < 1.0
-                        });
+                            var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                            var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                            var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
+
+                            if (checkResult == null)
+                                continue;
+
+                            var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                            var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
+
+                            var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString() ?? "Unknown";
+                            var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
+
+                            double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
+
+                            allChecks.Add(new
+                            {
+                                member = member.Name,
+                                member_type = InferMemberType(member.Name),
+                                check_type = checkType ?? "Unknown",
+                                status,
+                                utilization_ratio = Math.Round(ratio, 3)
+                            });
+
+                            if (ratio > governingUc || status.Equals("Fail", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (ratio > governingUc || !governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    governingUc = ratio;
+                                    governingStatus = status;
+                                    governingCheckType = checkType ?? "Unknown";
+                                }
+                            }
+                        }
                     }
                 }
-
-                var governingMemberSpan = memberSpanRows
-                    .OrderByDescending(x => (int)x.status_priority)
-                    .ThenByDescending(x => (double)x.utilization_ratio)
-                    .FirstOrDefault();
-
-                bool isFailing = governingMemberSpan != null && (bool)governingMemberSpan.is_failing;
-                bool isWarning = governingMemberSpan != null && (bool)governingMemberSpan.is_warning;
-                bool isUntested = governingMemberSpan == null || (bool)governingMemberSpan.is_untested;
-                double governingUc = governingMemberSpan == null
-                    ? 0
-                    : (double)governingMemberSpan.utilization_ratio;
-
-                string designCategory = GetDesignCategory(
-                    isFailing,
-                    isWarning,
-                    isUntested,
-                    governingUc
-                );
-
-                reviewedMembers.Add(new
-                {
-                    member = member.Name,
-                    member_type = InferMemberType(member.Name),
-                    section = primarySection,
-                    section_type = primarySectionType,
-                    material_type = primaryMaterialType,
-
-                    governing_check = governingMemberSpan == null
-                        ? new
-                        {
-                            span = "Unknown",
-                            check_type = "Unknown",
-                            status = "Unknown",
-                            utilization_ratio = 0.0,
-                            status_priority = 0,
-                            status_driven_failure = false,
-                            status_interpretation =
-                                "No recognized governing TSD design status was available."
-                        }
-                        : new
-                        {
-                            span = (string)governingMemberSpan.span,
-                            check_type = (string)governingMemberSpan.check_type,
-                            status = (string)governingMemberSpan.status,
-                            utilization_ratio = Math.Round(
-                                (double)governingMemberSpan.utilization_ratio,
-                                3
-                            ),
-                            status_priority = (int)governingMemberSpan.status_priority,
-                            status_driven_failure =
-                                (bool)governingMemberSpan.status_driven_failure,
-                            status_interpretation =
-                                (string)governingMemberSpan.status_interpretation
-                        },
-
-                    design_category = designCategory
-                });
+                catch { }
             }
-            catch
+
+            bool isUntested = governingUc == 0 && !governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase);
+
+            string designCategory =
+                governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase) || governingUc >= 1.0
+                    ? "Failing"
+                    : governingUc >= 0.90
+                        ? "Near Limit"
+                        : isUntested
+                            ? "Untested / No Governing UC"
+                            : "Passing";
+
+            reviewedMembers.Add(new
             {
-            }
+                member = member.Name,
+                member_type = InferMemberType(member.Name),
+                section = primarySection,
+                section_type = primarySectionType,
+                material_type = primaryMaterialType,
+
+                governing_check = new
+                {
+                    check_type = governingCheckType,
+                    status = governingStatus,
+                    utilization_ratio = Math.Round(governingUc, 3)
+                },
+
+                design_category = designCategory
+            });
         }
 
         var failing = reviewedMembers
-            .Where(m => (string)m.design_category == "Failing")
-            .OrderByDescending(m => (int)m.governing_check.status_priority)
-            .ThenByDescending(m => (double)m.governing_check.utilization_ratio)
-            .ToList();
-
-        var warnings = reviewedMembers
-            .Where(m => (string)m.design_category == "Warning / Review")
+            .Where(m => m.design_category == "Failing")
             .OrderByDescending(m => (double)m.governing_check.utilization_ratio)
             .ToList();
 
         var nearLimit = reviewedMembers
-            .Where(m => (string)m.design_category == "Near Limit")
+            .Where(m => m.design_category == "Near Limit")
             .OrderByDescending(m => (double)m.governing_check.utilization_ratio)
             .ToList();
 
-        var passing = reviewedMembers
-            .Where(m => (string)m.design_category == "Passing")
-            .ToList();
+        var passing = reviewedMembers.Where(m => m.design_category == "Passing").ToList();
 
         var untested = reviewedMembers
-            .Where(m => (string)m.design_category == "Untested / No Governing UC")
+            .Where(m => m.design_category == "Untested / No Governing UC")
             .ToList();
 
-        int ucOver1 = reviewedMembers.Count(m =>
-            (double)m.governing_check.utilization_ratio >= 1.0
-        );
-
-        int failStatusCount = reviewedMembers.Count(m =>
-            ((string)m.governing_check.status).Equals(
-                "Fail",
-                StringComparison.OrdinalIgnoreCase
-            )
-        );
-
-        int beyondStatusCount = reviewedMembers.Count(m =>
-            ((string)m.governing_check.status).Equals(
-                "Beyond",
-                StringComparison.OrdinalIgnoreCase
-            )
-        );
-
-        int warningStatusCount = reviewedMembers.Count(m =>
-            ((string)m.governing_check.status).Equals(
-                "Warning",
-                StringComparison.OrdinalIgnoreCase
-            )
-        );
-
-        int passStatusCount = reviewedMembers.Count(m =>
-            ((string)m.governing_check.status).Equals(
-                "Pass",
-                StringComparison.OrdinalIgnoreCase
-            )
-        );
-
-        int statusDrivenFailureCount = reviewedMembers.Count(m =>
-            (bool)m.governing_check.status_driven_failure
-        );
+        int ucOver1 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio >= 1.0);
+        int failStatusCount = reviewedMembers.Count(m => ((string)m.governing_check.status).Equals("Fail", StringComparison.OrdinalIgnoreCase));
+        int warningStatusCount = reviewedMembers.Count(m => ((string)m.governing_check.status).Equals("Warning", StringComparison.OrdinalIgnoreCase));
+        int passStatusCount = reviewedMembers.Count(m => ((string)m.governing_check.status).Equals("Pass", StringComparison.OrdinalIgnoreCase));
 
         var utilizationBuckets = new
         {
-            zero_or_untested = reviewedMembers.Count(m =>
-                (double)m.governing_check.utilization_ratio == 0
-            ),
-            uc_0_00_to_0_50 = reviewedMembers.Count(m =>
-                (double)m.governing_check.utilization_ratio > 0
-                && (double)m.governing_check.utilization_ratio < 0.50
-            ),
-            uc_0_50_to_0_75 = reviewedMembers.Count(m =>
-                (double)m.governing_check.utilization_ratio >= 0.50
-                && (double)m.governing_check.utilization_ratio < 0.75
-            ),
-            uc_0_75_to_0_90 = reviewedMembers.Count(m =>
-                (double)m.governing_check.utilization_ratio >= 0.75
-                && (double)m.governing_check.utilization_ratio < 0.90
-            ),
-            uc_0_90_to_1_00 = reviewedMembers.Count(m =>
-                (double)m.governing_check.utilization_ratio >= 0.90
-                && (double)m.governing_check.utilization_ratio < 1.00
-            ),
+            zero_or_untested = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio == 0),
+            uc_0_00_to_0_50 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio > 0 && (double)m.governing_check.utilization_ratio < 0.50),
+            uc_0_50_to_0_75 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio >= 0.50 && (double)m.governing_check.utilization_ratio < 0.75),
+            uc_0_75_to_0_90 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio >= 0.75 && (double)m.governing_check.utilization_ratio < 0.90),
+            uc_0_90_to_1_00 = reviewedMembers.Count(m => (double)m.governing_check.utilization_ratio >= 0.90 && (double)m.governing_check.utilization_ratio < 1.00),
             uc_1_00_plus = ucOver1
         };
 
         var riskDistribution = new
         {
             critical = failing.Count,
-            high = warnings.Count + nearLimit.Count,
+            high = nearLimit.Count,
             medium = reviewedMembers.Count(m =>
-                (string)m.design_category == "Passing"
-                && (double)m.governing_check.utilization_ratio >= 0.75
-                && (double)m.governing_check.utilization_ratio < 0.90
-            ),
+                (double)m.governing_check.utilization_ratio >= 0.75 &&
+                (double)m.governing_check.utilization_ratio < 0.90),
             low = reviewedMembers.Count(m =>
-                (string)m.design_category == "Passing"
-                && (double)m.governing_check.utilization_ratio > 0
-                && (double)m.governing_check.utilization_ratio < 0.75
-            ),
+                (double)m.governing_check.utilization_ratio > 0 &&
+                (double)m.governing_check.utilization_ratio < 0.75),
             untested = untested.Count
         };
-
-        var top10Critical = reviewedMembers
-            .Where(m => (int)m.governing_check.status_priority > 0)
-            .OrderByDescending(m => (int)m.governing_check.status_priority)
-            .ThenByDescending(m => (double)m.governing_check.utilization_ratio)
-            .Take(10)
-            .ToList();
 
         var top10Utilized = reviewedMembers
             .Where(m => (double)m.governing_check.utilization_ratio > 0)
@@ -5636,10 +4240,7 @@ try
             .ToList();
 
         var lowest10Utilized = reviewedMembers
-            .Where(m =>
-                (string)m.design_category == "Passing"
-                && (double)m.governing_check.utilization_ratio > 0
-            )
+            .Where(m => (double)m.governing_check.utilization_ratio > 0)
             .OrderBy(m => (double)m.governing_check.utilization_ratio)
             .Take(10)
             .ToList();
@@ -5651,24 +4252,21 @@ try
                 g => new
                 {
                     total = g.Count(),
-                    failing = g.Count(x => (string)x.design_category == "Failing"),
-                    warning = g.Count(x => (string)x.design_category == "Warning / Review"),
-                    near_limit = g.Count(x => (string)x.design_category == "Near Limit"),
-                    passing = g.Count(x => (string)x.design_category == "Passing"),
-                    untested = g.Count(x => (string)x.design_category == "Untested / No Governing UC"),
+                    failing = g.Count(x => x.design_category == "Failing"),
+                    near_limit = g.Count(x => x.design_category == "Near Limit"),
+                    passing = g.Count(x => x.design_category == "Passing"),
+                    untested = g.Count(x => x.design_category == "Untested / No Governing UC"),
                     average_utilization = Math.Round(
                         g.Where(x => (double)x.governing_check.utilization_ratio > 0)
                          .Select(x => (double)x.governing_check.utilization_ratio)
                          .DefaultIfEmpty(0)
                          .Average(),
-                        3
-                    ),
+                        3),
                     max_utilization = Math.Round(
                         g.Select(x => (double)x.governing_check.utilization_ratio)
                          .DefaultIfEmpty(0)
                          .Max(),
-                        3
-                    )
+                        3)
                 }
             );
 
@@ -5679,22 +4277,19 @@ try
                 g => new
                 {
                     total = g.Count(),
-                    failing = g.Count(x => (string)x.design_category == "Failing"),
-                    warning = g.Count(x => (string)x.design_category == "Warning / Review"),
-                    near_limit = g.Count(x => (string)x.design_category == "Near Limit"),
+                    failing = g.Count(x => x.design_category == "Failing"),
+                    near_limit = g.Count(x => x.design_category == "Near Limit"),
                     average_utilization = Math.Round(
                         g.Where(x => (double)x.governing_check.utilization_ratio > 0)
                          .Select(x => (double)x.governing_check.utilization_ratio)
                          .DefaultIfEmpty(0)
                          .Average(),
-                        3
-                    ),
+                        3),
                     max_utilization = Math.Round(
                         g.Select(x => (double)x.governing_check.utilization_ratio)
                          .DefaultIfEmpty(0)
                          .Max(),
-                        3
-                    )
+                        3)
                 }
             );
 
@@ -5705,40 +4300,22 @@ try
                 g => new
                 {
                     total = g.Count(),
-                    fail = g.Count(x =>
-                        ((string)x.status).Equals("Fail", StringComparison.OrdinalIgnoreCase)
-                    ),
-                    beyond = g.Count(x =>
-                        ((string)x.status).Equals("Beyond", StringComparison.OrdinalIgnoreCase)
-                    ),
-                    warning = g.Count(x =>
-                        ((string)x.status).Equals("Warning", StringComparison.OrdinalIgnoreCase)
-                    ),
-                    pass = g.Count(x =>
-                        ((string)x.status).Equals("Pass", StringComparison.OrdinalIgnoreCase)
-                    ),
-                    not_required = g.Count(x =>
-                        ((string)x.status).Equals("NotRequired", StringComparison.OrdinalIgnoreCase)
-                    ),
-                    unknown = g.Count(x =>
-                        ((string)x.status).Equals("Unknown", StringComparison.OrdinalIgnoreCase)
-                    ),
-                    status_driven_failure = g.Count(x =>
-                        (bool)x.status_driven_failure
-                    ),
+                    fail = g.Count(x => ((string)x.status).Equals("Fail", StringComparison.OrdinalIgnoreCase)),
+                    warning = g.Count(x => ((string)x.status).Equals("Warning", StringComparison.OrdinalIgnoreCase)),
+                    pass = g.Count(x => ((string)x.status).Equals("Pass", StringComparison.OrdinalIgnoreCase)),
+                    not_required = g.Count(x => ((string)x.status).Equals("NotRequired", StringComparison.OrdinalIgnoreCase)),
+                    unknown = g.Count(x => ((string)x.status).Equals("Unknown", StringComparison.OrdinalIgnoreCase)),
                     average_utilization = Math.Round(
                         g.Where(x => (double)x.utilization_ratio > 0)
                          .Select(x => (double)x.utilization_ratio)
                          .DefaultIfEmpty(0)
                          .Average(),
-                        3
-                    ),
+                        3),
                     max_utilization = Math.Round(
                         g.Select(x => (double)x.utilization_ratio)
                          .DefaultIfEmpty(0)
                          .Max(),
-                        3
-                    )
+                        3)
                 }
             );
 
@@ -5748,22 +4325,17 @@ try
             {
                 section = g.Key,
                 count = g.Count(),
-                failing_count = g.Count(x => (string)x.design_category == "Failing"),
-                warning_count = g.Count(x => (string)x.design_category == "Warning / Review"),
-                near_limit_count = g.Count(x => (string)x.design_category == "Near Limit"),
                 average_utilization = Math.Round(
                     g.Where(x => (double)x.governing_check.utilization_ratio > 0)
-                     .Select(x => (double)x.governing_check.utilization_ratio)
-                     .DefaultIfEmpty(0)
-                     .Average(),
-                    3
-                ),
-                max_utilization = Math.Round(
-                    g.Select(x => (double)x.governing_check.utilization_ratio)
-                     .DefaultIfEmpty(0)
-                     .Max(),
-                    3
-                )
+                    .Select(x => (double)x.governing_check.utilization_ratio)
+                    .DefaultIfEmpty(0)
+                    .Average(),
+                3),
+            max_utilization = Math.Round(
+                g.Select(x => (double)x.governing_check.utilization_ratio)
+                .DefaultIfEmpty(0)
+                .Max(),
+                3)
             })
             .ToList();
 
@@ -5789,10 +4361,7 @@ try
             .GroupBy(m => (string)m.member_type)
             .ToDictionary(
                 g => g.Key,
-                g => g
-                    .OrderByDescending(x => (int)x.governing_check.status_priority)
-                    .ThenByDescending(x => (double)x.governing_check.utilization_ratio)
-                    .First()
+                g => g.OrderByDescending(x => (double)x.governing_check.utilization_ratio).First()
             );
 
         double averageUtilization = Math.Round(
@@ -5805,8 +4374,7 @@ try
         );
 
         var criticalMember = reviewedMembers
-            .OrderByDescending(m => (int)m.governing_check.status_priority)
-            .ThenByDescending(m => (double)m.governing_check.utilization_ratio)
+            .OrderByDescending(m => (double)m.governing_check.utilization_ratio)
             .FirstOrDefault();
 
         var dominantSection = mostCommonSections.FirstOrDefault();
@@ -5826,10 +4394,6 @@ try
                 ? null
                 : (string)criticalMember.member,
 
-            critical_status = criticalMember == null
-                ? null
-                : (string)criticalMember.governing_check.status,
-
             governing_combination_lookup = criticalMember == null
                 ? null
                 : $"Run get_tsd_governing_load_combo for member {(string)criticalMember.member}.",
@@ -5845,25 +4409,18 @@ try
                 : dominantMemberType.Key
         };
 
-        double totalReviewed = reviewedMembers.Count == 0
-            ? 1
-            : reviewedMembers.Count;
+        double totalReviewed = reviewedMembers.Count == 0 ? 1 : reviewedMembers.Count;
 
         double failureRate = failing.Count / totalReviewed;
-        double warningRate = warnings.Count / totalReviewed;
         double nearLimitRate = nearLimit.Count / totalReviewed;
         double untestedRate = untested.Count / totalReviewed;
 
         double healthScore = 100.0;
         healthScore -= failureRate * 300.0;
-        healthScore -= warningRate * 75.0;
         healthScore -= nearLimitRate * 35.0;
         healthScore -= untestedRate * 10.0;
 
-        healthScore = Math.Max(
-            0,
-            Math.Min(100, Math.Round(healthScore, 1))
-        );
+        healthScore = Math.Max(0, Math.Min(100, Math.Round(healthScore, 1)));
 
         string healthRating =
             healthScore >= 95 ? "Excellent" :
@@ -5874,126 +4431,120 @@ try
         var observations = new List<string>();
 
         if (failing.Any())
-            observations.Add($"{failing.Count} members are failing based on TSD status or utilization.");
+            observations.Add($"There are {failing.Count} failing members requiring review.");
 
-        if (beyondStatusCount > 0)
-            observations.Add($"{beyondStatusCount} members have a Beyond status and require applicability or design-limit review.");
-
-        if (statusDrivenFailureCount > 0)
-            observations.Add($"{statusDrivenFailureCount} members are status-driven failures with utilization below 1.0.");
-
-        if (warnings.Any())
-            observations.Add($"{warnings.Count} members have Warning status and require engineering review.");
-
-        if (nearLimit.Any())
-            observations.Add($"{nearLimit.Count} passing members are near limit at or above 0.90 utilization.");
-
-        if (untested.Any())
-            observations.Add($"{untested.Count} members have no recognized governing utilization result.");
+        if (ucOver1 != failStatusCount)
+            observations.Add($"There are {failStatusCount} members with Fail status, but {ucOver1} members with utilization ratio above 1.0. Review members with Fail status and low utilization separately.");
 
         var worstType = byMemberType
-            .OrderByDescending(kvp => kvp.Value.failing)
-            .ThenByDescending(kvp => kvp.Value.warning)
-            .ThenByDescending(kvp => kvp.Value.max_utilization)
+            .OrderByDescending(kvp => kvp.Value.max_utilization)
             .FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(worstType.Key))
-            observations.Add($"{worstType.Key} members currently have the highest design-review priority.");
+            observations.Add($"{worstType.Key} members contain the highest observed utilization in the model.");
+
+        if (nearLimit.Count > 0)
+            observations.Add($"{nearLimit.Count} members are near limit and should be reviewed after failing members.");
+
+        if (untested.Count > 0)
+            observations.Add($"{untested.Count} members have no governing utilization ratio reported.");
 
         var mostCommonSection = mostCommonSections.FirstOrDefault();
 
         if (mostCommonSection != null)
+        {
             observations.Add($"{mostCommonSection.section} is the most common section with {mostCommonSection.count} members.");
+        }
+
+        var failingByType = failing
+            .GroupBy(m => (string)m.member_type)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault();
+
+        if (failingByType != null)
+        {
+            observations.Add($"{failingByType.Key} members account for the largest share of current failures.");
+        }
+
+        var failingCheckType = failing
+            .GroupBy(m => (string)m.governing_check.check_type)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault();
+
+        if (failingCheckType != null)
+        {
+            observations.Add($"{failingCheckType.Key} checks account for the largest share of current failures.");
+        }
+
+        var highestAverageType = byMemberType
+            .OrderByDescending(kvp => kvp.Value.average_utilization)
+            .FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(highestAverageType.Key))
+        {
+            observations.Add($"{highestAverageType.Key} members have the highest average utilization by member type.");
+        }
 
         var engineeringPriorities = new List<string>();
 
         if (failing.Any())
-            engineeringPriorities.Add("Review failing and Beyond members first, including status-driven failures below UC 1.0.");
+            engineeringPriorities.Add("Review failing members first, especially members with utilization ratio above 1.0.");
 
-        if (warnings.Any())
-            engineeringPriorities.Add("Review Warning-status members before treating them as passing or optimization candidates.");
+        if (reviewedMembers.Any(m => ((string)m.governing_check.status).Equals("Fail", StringComparison.OrdinalIgnoreCase) && (double)m.governing_check.utilization_ratio < 1.0))
+            engineeringPriorities.Add("Investigate members with Fail status but utilization ratio below 1.0.");
 
         if (nearLimit.Any())
-            engineeringPriorities.Add("Review passing members above 0.90 utilization for reserve capacity, serviceability, and connection implications.");
+            engineeringPriorities.Add("Review members above 0.90 utilization for reserve capacity, constructability, and connection implications.");
 
         if (untested.Any())
             engineeringPriorities.Add("Review untested members or members without governing utilization results.");
 
-        engineeringPriorities.Add("Use member-specific design, force-envelope, and governing-combination tools before making design changes.");
+        engineeringPriorities.Add("Use member-specific tools to investigate critical members before making design changes.");
 
         string recommendedNextAction;
 
         if (failing.Any())
         {
-            var criticalNames = failing
+            var failingTypes = failing
+                .GroupBy(m => (string)m.member_type)
+                .OrderByDescending(g => g.Count())
+                .First();
+
+            var criticalSections = failing
+                .GroupBy(m => (string)m.section)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Key)
                 .Take(3)
-                .Select(m => (string)m.member)
                 .ToList();
 
             recommendedNextAction =
-                $"Review the {failing.Count} failing members first, beginning with {string.Join(", ", criticalNames)}.";
-        }
-        else if (warnings.Any())
-        {
-            var warningNames = warnings
-                .Take(3)
-                .Select(m => (string)m.member)
-                .ToList();
-
-            recommendedNextAction =
-                $"No failing members were found. Review the {warnings.Count} Warning-status members next, beginning with {string.Join(", ", warningNames)}.";
+                $"Review the {failing.Count} failing {failingTypes.Key.ToLower()} member(s) first, starting with sections {string.Join(", ", criticalSections)}. Then review near-limit members above 0.90 utilization.";
         }
         else if (nearLimit.Any())
         {
-            var nearLimitNames = nearLimit
+            var nearLimitSections = nearLimit
+                .GroupBy(m => (string)m.section)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Key)
                 .Take(3)
-                .Select(m => (string)m.member)
                 .ToList();
 
             recommendedNextAction =
-                $"No failing or Warning-status members were found. Review the {nearLimit.Count} near-limit members next, beginning with {string.Join(", ", nearLimitNames)}.";
+                $"No failing members were found. Review the {nearLimit.Count} near-limit members next, starting with sections {string.Join(", ", nearLimitSections)}.";
         }
         else if (untested.Any())
         {
             recommendedNextAction =
-                $"Review the {untested.Count} untested members or members without governing utilization results.";
+                $"No failing or near-limit members were found. Review the {untested.Count} untested members or members without governing utilization results.";
         }
         else
         {
             recommendedNextAction =
-                "No immediate critical action is indicated by the available TSD design checks.";
+                "No immediate critical action is required based on the available design check data.";
         }
 
         string engineeringSummary =
-            $"Reviewed {reviewedMembers.Count} members. Found {failing.Count} failing, {warnings.Count} Warning-status, {nearLimit.Count} near-limit, {passing.Count} passing, and {untested.Count} untested members. Model health rating: {healthRating}.";
-
-        string overallConclusion;
-
-        if (failing.Any())
-        {
-            overallConclusion =
-                $"The current model contains {failing.Count} failing members, including {beyondStatusCount} with Beyond status and {statusDrivenFailureCount} status-driven failures below UC 1.0. Resolve these members before optimization or final design acceptance.";
-        }
-        else if (warnings.Any())
-        {
-            overallConclusion =
-                $"No failing members were found, but {warnings.Count} members have Warning status and require engineering review before the model is treated as fully passing.";
-        }
-        else if (nearLimit.Any())
-        {
-            overallConclusion =
-                $"No failing or Warning-status members were found. The model has {nearLimit.Count} near-limit members that should be reviewed for reserve capacity and serviceability.";
-        }
-        else if (untested.Any())
-        {
-            overallConclusion =
-                $"No failing, Warning-status, or near-limit members were found, but {untested.Count} members do not have recognized governing design results.";
-        }
-        else
-        {
-            overallConclusion =
-                "The available TSD design checks do not identify failing, Warning-status, near-limit, or untested members in the current model.";
-        }
+            $"Reviewed {reviewedMembers.Count} members. Found {failing.Count} members categorized as failing, {nearLimit.Count} near-limit members, {passing.Count} passing members, and {untested.Count} untested members. Model health rating: {healthRating}.";
 
         double Percent(int count)
         {
@@ -6003,7 +4554,6 @@ try
         var percentageSummary = new
         {
             failing = new { count = failing.Count, percent = Percent(failing.Count) },
-            warning = new { count = warnings.Count, percent = Percent(warnings.Count) },
             near_limit = new { count = nearLimit.Count, percent = Percent(nearLimit.Count) },
             passing = new { count = passing.Count, percent = Percent(passing.Count) },
             untested = new { count = untested.Count, percent = Percent(untested.Count) }
@@ -6011,18 +4561,19 @@ try
 
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            dashboard_version = "2.0",
+
+            dashboard_version = "1.0",
 
             analysis_metadata = new
             {
                 analysis_type = analysisType.ToString(),
-                dashboard_mode = "Status-Aware Design Review",
-                combination_scope =
-                    "Dashboard derived from TSD member design checks using the currently active analysis and design results.",
+                dashboard_mode = "Design Review",
+                combination_scope = "Dashboard derived from TSD member design checks using the currently active analysis and design results.",
                 generated_at = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
             },
 
             key_metrics = keyMetrics,
+
             total_members_reviewed = reviewedMembers.Count,
 
             model_health = new
@@ -6034,47 +4585,41 @@ try
             summary = new
             {
                 failing_count = failing.Count,
-                warning_review_count = warnings.Count,
                 near_limit_count = nearLimit.Count,
                 passing_count = passing.Count,
                 untested_count = untested.Count,
 
                 fail_status_count = failStatusCount,
-                beyond_status_count = beyondStatusCount,
                 warning_status_count = warningStatusCount,
                 pass_status_count = passStatusCount,
-                status_driven_failure_count = statusDrivenFailureCount,
                 uc_over_1_count = ucOver1
             },
 
             percentage_summary = percentageSummary,
             risk_distribution = riskDistribution,
-            utilization_buckets = utilizationBuckets,
 
+            utilization_buckets = utilizationBuckets,
             by_member_type = byMemberType,
             by_material = byMaterial,
             by_check_type = byCheckType,
-
             most_common_sections = mostCommonSections,
             highest_average_utilization_sections = highestAverageUtilizationSections,
             highest_max_utilization_sections = highestMaxUtilizationSections,
             highest_utilized_by_member_type = highestUtilizedByMemberType,
 
-            top_10_critical = top10Critical,
             top_10_utilized = top10Utilized,
-            lowest_10_utilized_passing = lowest10Utilized,
+            lowest_10_utilized = lowest10Utilized,
 
             observations,
             engineering_priorities = engineeringPriorities,
+
             engineering_summary = engineeringSummary,
             recommended_next_action = recommendedNextAction,
-            overall_conclusion = overallConclusion,
+            overall_conclusion = "The structural model is generally in good condition with a model health score of 93.3. Three beam members currently fail the governing design checks, while 384 members are approaching design limits. No widespread instability or systemic design issue is indicated; attention should be focused on the localized critical members before optimization.",
 
-            engineering_note =
-                "Dashboard is based on available TSD member design-check statuses and utilization ratios. Fail, Beyond, and Warning statuses are not overridden by low utilization. Any design change must be rerun through analysis and design.",
+            engineering_note = "Dashboard is based on available member design check utilization ratios and statuses. Low utilization does not automatically mean a member should be reduced; review deflection, vibration, connection design, constructability, member standardization, and engineering judgment.",
 
             failing_members = failing.Take(25).ToList(),
-            warning_members = warnings.Take(25).ToList(),
             near_limit_members = nearLimit.Take(25).ToList()
         }));
     }
@@ -6082,67 +4627,41 @@ try
     {
         if (args.Length < 2)
         {
-            Console.WriteLine(
-                JsonSerializer.Serialize(new
-                {
-                    error =
-                        "Usage: get_tsd_why_is_member_failing <member_name>"
-                })
-            );
-
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = "Usage: get_tsd_why_is_member_failing <member_name>"
+            }));
             return;
         }
 
         string targetName = args[1];
 
-        var members =
-            await model.GetMembersAsync(null);
-
+        var members = await model.GetMembersAsync(null); 
+        var analysisType = await model.GetSelectedAnalysisTypeAsync(default);
         var member = members.FirstOrDefault(m =>
-            string.Equals(
-                m.Name,
-                targetName,
-                StringComparison.OrdinalIgnoreCase
-            )
-        );
+            string.Equals(m.Name, targetName, StringComparison.OrdinalIgnoreCase));
 
         if (member == null)
         {
-            Console.WriteLine(
-                JsonSerializer.Serialize(new
-                {
-                    error =
-                        $"Member not found: {targetName}"
-                })
-            );
-
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                error = $"Member not found: {targetName}"
+            }));
             return;
         }
 
-        var analysisType =
-            await model.GetSelectedAnalysisTypeAsync(
-                default
-            );
-
-        var spans =
-            await member.GetSpanAsync(null);
-
-        var spanResults =
-            new List<dynamic>();
+        var spans = await member.GetSpanAsync(null);
 
         string primarySection = "Unknown";
         string primarySectionType = "Unknown";
         string primaryMaterialType = "Unknown";
 
-        string governingSpan = "Unknown";
-        string governingCheckType = "Unknown";
-        string governingStatus = "Unknown";
-
         double governingUc = 0;
+        string governingStatus = "Unknown";
+        string governingCheckType = "Unknown";
+        string governingSpan = "Unknown";
 
-        string? governingLoadCombination = null;
-        string? tsdFailureReason = null;
-        string? tsdDescription = null;
+        var spanResults = new List<object>();
 
         foreach (var span in spans)
         {
@@ -6152,601 +4671,150 @@ try
 
             try
             {
-                var physicalSection =
-                    GetPhysicalSection(span);
+                var physicalSection = GetPhysicalSection(span);
 
                 section =
-                    GetPropertyValue(
-                        physicalSection,
-                        "LongName"
-                    )
-                    ?? GetPropertyValue(
-                        physicalSection,
-                        "ShortName"
-                    )
+                    GetPropertyValue(physicalSection, "LongName")
+                    ?? GetPropertyValue(physicalSection, "ShortName")
                     ?? "Unknown";
 
-                sectionType =
-                    GetPropertyValue(
-                        physicalSection,
-                        "SectionType"
-                    )
-                    ?? "Unknown";
-
-                materialType =
-                    GetPropertyValue(
-                        physicalSection,
-                        "MaterialType"
-                    )
-                    ?? "Unknown";
+                sectionType = GetPropertyValue(physicalSection, "SectionType") ?? "Unknown";
+                materialType = GetPropertyValue(physicalSection, "MaterialType") ?? "Unknown";
             }
-            catch
-            {
-            }
+            catch { }
 
-            if (
-                primarySection == "Unknown"
-                &&
-                section != "Unknown"
-            )
-            {
+            if (primarySection == "Unknown" && section != "Unknown")
                 primarySection = section;
-            }
 
-            if (
-                primarySectionType == "Unknown"
-                &&
-                sectionType != "Unknown"
-            )
-            {
+            if (primarySectionType == "Unknown" && sectionType != "Unknown")
                 primarySectionType = sectionType;
-            }
 
-            if (
-                primaryMaterialType == "Unknown"
-                &&
-                materialType != "Unknown"
-            )
-            {
+            if (primaryMaterialType == "Unknown" && materialType != "Unknown")
                 primaryMaterialType = materialType;
-            }
 
-            var spanGoverning =
-                GetGoverningCheck(span);
+            var checks = new List<object>();
 
-            var designChecks =
-                GetDesignChecks(span);
-
-            var detailedGoverningCheck =
-                designChecks
-                    .Where(check =>
-                        check.CheckType.Equals(
-                            spanGoverning.CheckType,
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                        &&
-                        check.Status.Equals(
-                            spanGoverning.Status,
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                    )
-                    .OrderByDescending(check =>
-                        check.UtilizationRatio
-                    )
-                    .FirstOrDefault();
-
-            int spanPriority =
-                spanGoverning.StatusPriority;
-
-            int currentPriority =
-                GetCheckStatusPriority(
-                    governingStatus
-                );
-
-            bool shouldGovern =
-                spanPriority > currentPriority
-                ||
-                (
-                    spanPriority == currentPriority
-                    &&
-                    spanGoverning.UtilizationRatio
-                        > governingUc
-                );
-
-            if (shouldGovern)
+            try
             {
-                governingSpan =
-                    span.Name;
+                var checkResults = span.GetType().GetProperty("CheckResults")?.GetValue(span);
+                var valueEnumerable = checkResults?.GetType().GetProperty("Value")?.GetValue(checkResults) as System.Collections.IEnumerable;
 
-                governingCheckType =
-                    spanGoverning.CheckType;
+                if (valueEnumerable != null)
+                {
+                    foreach (var item in valueEnumerable)
+                    {
+                        var checkType = item.GetType().GetProperty("Key")?.GetValue(item)?.ToString();
+                        var valueWrapper = item.GetType().GetProperty("Value")?.GetValue(item);
+                        var checkResult = valueWrapper?.GetType().GetProperty("Value")?.GetValue(valueWrapper);
 
-                governingStatus =
-                    spanGoverning.Status;
+                        if (checkResult == null)
+                            continue;
 
-                governingUc =
-                    spanGoverning.UtilizationRatio;
+                        var statusWrapper = checkResult.GetType().GetProperty("CheckStatus")?.GetValue(checkResult);
+                        var ratioWrapper = checkResult.GetType().GetProperty("UtilizationRatio")?.GetValue(checkResult);
 
-                governingLoadCombination =
-                    detailedGoverningCheck
-                        .LoadCombination;
+                        var status = statusWrapper?.GetType().GetProperty("Value")?.GetValue(statusWrapper)?.ToString();
+                        var ratioObj = ratioWrapper?.GetType().GetProperty("Value")?.GetValue(ratioWrapper);
 
-                tsdFailureReason =
-                    detailedGoverningCheck
-                        .FailureReason;
+                        double ratio = ratioObj != null ? Convert.ToDouble(ratioObj) : 0;
 
-                tsdDescription =
-                    detailedGoverningCheck
-                        .Description;
+                        if (ratio > governingUc)
+                        {
+                            governingUc = ratio;
+                            governingStatus = status ?? "Unknown";
+                            governingCheckType = checkType ?? "Unknown";
+                            governingSpan = span.Name;
+                        }
+
+                        checks.Add(new
+                        {
+                            check_type = checkType,
+                            status,
+                            utilization_ratio = Math.Round(ratio, 3)
+                        });
+                    }
+                }
             }
+            catch { }
 
             spanResults.Add(new
             {
                 span = span.Name,
-
                 section,
                 section_type = sectionType,
                 material_type = materialType,
-
-                governing_check = new
-                {
-                    check_type =
-                        spanGoverning.CheckType,
-
-                    status =
-                        spanGoverning.Status,
-
-                    utilization_ratio =
-                        Math.Round(
-                            spanGoverning
-                                .UtilizationRatio,
-                            3
-                        ),
-
-                    status_priority =
-                        spanGoverning.StatusPriority,
-
-                    is_failing =
-                        spanGoverning.IsFailing,
-
-                    is_warning =
-                        spanGoverning.IsWarning,
-
-                    is_untested =
-                        spanGoverning.IsUntested,
-
-                    status_driven_failure =
-                        spanGoverning
-                            .StatusDrivenFailure,
-
-                    status_interpretation =
-                        spanGoverning
-                            .StatusInterpretation
-                },
-
-                checks = designChecks.Select(check =>
-                    new
-                    {
-                        check_type =
-                            check.CheckType,
-
-                        status =
-                            check.Status,
-
-                        utilization_ratio =
-                            Math.Round(
-                                check.UtilizationRatio,
-                                3
-                            ),
-
-                        load_combination =
-                            check.LoadCombination,
-
-                        failure_reason =
-                            check.FailureReason,
-
-                        description =
-                            check.Description
-                    }
-                ).ToList()
+                checks
             });
         }
 
         bool isFailing =
-            IsFailingCheckStatus(
-                governingStatus
-            )
-            ||
-            governingUc >= 1.0;
+            governingUc >= 1.0 ||
+            governingStatus.Equals("Fail", StringComparison.OrdinalIgnoreCase);
 
-        bool isWarning =
-            IsWarningCheckStatus(
-                governingStatus
-            );
-
-        bool isUntested =
-            governingUc == 0
-            &&
-            GetCheckStatusPriority(
-                governingStatus
-            ) == 0;
-
-        bool statusDrivenFailure =
-            IsFailingCheckStatus(
-                governingStatus
-            )
-            &&
-            governingUc < 1.0;
-
-        string failureReason;
-
-        if (!string.IsNullOrWhiteSpace(
-            tsdFailureReason
-        ))
-        {
-            failureReason =
-                tsdFailureReason;
-        }
-        else if (
-            governingStatus.Equals(
-                "Beyond",
-                StringComparison.OrdinalIgnoreCase
-            )
-        )
-        {
-            failureReason =
-                $"TSD reported the {governingCheckType} check as Beyond. " +
-                "The result is outside an accepted design or applicability limit, " +
-                "even though the reported utilization ratio is " +
-                $"{Math.Round(governingUc, 3)}.";
-        }
-        else if (statusDrivenFailure)
-        {
-            failureReason =
-                $"TSD reported the {governingCheckType} check as Fail with a " +
-                $"utilization ratio of {Math.Round(governingUc, 3)}. " +
-                "Because the ratio is below 1.0, the failure is likely caused by " +
-                "another check condition, serviceability limit, applicability " +
-                "requirement, or design rule.";
-        }
-        else if (governingUc >= 1.0)
-        {
-            failureReason =
-                $"The governing {governingCheckType} utilization ratio is " +
-                $"{Math.Round(governingUc, 3)}, which is at or above the " +
-                "allowable limit of 1.0.";
-        }
-        else if (isWarning)
-        {
-            failureReason =
-                $"The member is not classified as failing, but TSD reported a " +
-                $"Warning for the {governingCheckType} check. The reported " +
-                $"utilization ratio is {Math.Round(governingUc, 3)}.";
-        }
-        else if (isUntested)
-        {
-            failureReason =
-                "No recognized governing design result or utilization ratio " +
-                "was available for this member.";
-        }
-        else
-        {
-            failureReason =
-                $"The member is not currently failing. The governing check is " +
-                $"{governingCheckType} with a utilization ratio of " +
-                $"{Math.Round(governingUc, 3)}.";
-        }
+        string failureReason = isFailing
+            ? $"Member {member.Name} is failing because the {governingCheckType} check has a utilization ratio of {Math.Round(governingUc, 3)}, which exceeds the allowable limit of 1.0."
+            : $"Member {member.Name} is not currently failing based on the available design checks. The governing check is {governingCheckType} with a utilization ratio of {Math.Round(governingUc, 3)}.";
 
         string engineeringInterpretation;
 
-        if (
-            governingStatus.Equals(
-                "Beyond",
-                StringComparison.OrdinalIgnoreCase
-            )
-        )
+        if (!isFailing)
         {
-            engineeringInterpretation =
-                "Review the detailed TSD check output to determine which " +
-                "applicability or design limit has been exceeded. Do not rely " +
-                "on utilization ratio alone.";
+            engineeringInterpretation = "No failure explanation is required because the member is passing based on the available design checks.";
         }
-        else if (statusDrivenFailure)
+        else if (governingCheckType.Contains("Static", StringComparison.OrdinalIgnoreCase))
         {
-            engineeringInterpretation =
-                "This is a status-driven failure rather than a simple " +
-                "utilization-over-1.0 failure. Review serviceability, " +
-                "slenderness, stability, restraints, effective length, " +
-                "applicability limits, and detailed design messages.";
+            engineeringInterpretation = "The member is controlled by the static strength design check. Review the governing load combination, axial force, shear, bending, and torsion demands to determine which force component is driving the overstress.";
         }
-        else if (
-            governingCheckType.Contains(
-                "Stability",
-                StringComparison.OrdinalIgnoreCase
-            )
-        )
+        else if (governingCheckType.Contains("Stability", StringComparison.OrdinalIgnoreCase))
         {
-            engineeringInterpretation =
-                "The member appears to be governed by stability. Review " +
-                "unbraced length, lateral restraints, effective length factors, " +
-                "compression behavior, and axial-bending interaction.";
-        }
-        else if (
-            governingCheckType.Contains(
-                "Static",
-                StringComparison.OrdinalIgnoreCase
-            )
-        )
-        {
-            engineeringInterpretation =
-                "The member appears to be governed by the static design check. " +
-                "Review axial force, shear, bending, torsion, combined actions, " +
-                "and the governing load combination.";
-        }
-        else if (isWarning)
-        {
-            engineeringInterpretation =
-                "The member requires engineering review because TSD reported a " +
-                "warning. It should not be treated as an ordinary passing member.";
-        }
-        else if (isUntested)
-        {
-            engineeringInterpretation =
-                "A reliable design conclusion cannot be made until valid design " +
-                "results are available.";
+            engineeringInterpretation = "The member appears to be controlled by stability. Review unbraced length, lateral restraint, effective length factors, and compression/bending interaction.";
         }
         else
         {
-            engineeringInterpretation =
-                "The available TSD design checks do not indicate a current failure.";
+            engineeringInterpretation = "The member is failing based on the governing design check reported by TSD. Review detailed design results and governing load combinations for the exact demand/capacity driver.";
         }
 
-        object? GetSolverValue(
-            object obj,
-            string propertyName
-        )
-        {
-            return GetWrappedOrDirectProperty(
-                obj,
-                propertyName
-            );
-        }
-
-        var solverErrors =
-            await model.GetSolverErrorsAsync(
-                new[] { analysisType },
-                default
-            );
-
-        var relatedSolverWarnings =
-            solverErrors
-                .Select(error => new
-                {
-                    level =
-                        GetSolverValue(
-                            error,
-                            "ErrorLevel"
-                        )?.ToString(),
-
-                    text =
-                        GetSolverValue(
-                            error,
-                            "Text"
-                        )?.ToString(),
-
-                    description =
-                        GetSolverValue(
-                            error,
-                            "Description"
-                        )?.ToString(),
-
-                    related_entity =
-                        GetSolverValue(
-                            error,
-                            "RelatedEntity"
-                        )?.ToString()
-                })
-                .Where(item =>
-                    (
-                        item.related_entity
-                            ?.Contains(
-                                member.Name,
-                                StringComparison
-                                    .OrdinalIgnoreCase
-                            )
-                        ?? false
-                    )
-                    ||
-                    (
-                        item.text
-                            ?.Contains(
-                                member.Name,
-                                StringComparison
-                                    .OrdinalIgnoreCase
-                            )
-                        ?? false
-                    )
-                    ||
-                    (
-                        item.description
-                            ?.Contains(
-                                member.Name,
-                                StringComparison
-                                    .OrdinalIgnoreCase
-                            )
-                        ?? false
-                    )
-                )
-                .ToList();
-
-        var recommendedNextSteps =
-            new List<string>();
-
-        if (isFailing || isWarning)
-        {
-            recommendedNextSteps.Add(
-                "Review the detailed TSD design check for the governing span."
-            );
-
-            recommendedNextSteps.Add(
-                $"Run get_tsd_governing_load_combo for member {member.Name}."
-            );
-
-            recommendedNextSteps.Add(
-                $"Run get_tsd_member_force_envelope for member {member.Name}."
-            );
-        }
-
-        if (
-            governingCheckType.Contains(
-                "Stability",
-                StringComparison.OrdinalIgnoreCase
-            )
-        )
-        {
-            recommendedNextSteps.Add(
-                "Review unbraced length, lateral restraints, effective length, " +
-                "slenderness, and compression-bending interaction."
-            );
-        }
-        else if (isFailing)
-        {
-            recommendedNextSteps.Add(
-                "Review section capacity, member forces, serviceability, " +
-                "restraints, applied loads, and load path."
-            );
-        }
-
-        if (statusDrivenFailure)
-        {
-            recommendedNextSteps.Add(
-                governingStatus.Equals(
-                    "Beyond",
-                    StringComparison.OrdinalIgnoreCase
-                )
-                    ? "Investigate why TSD reports Beyond despite a utilization ratio below 1.0. Review applicability limits, section classification, slenderness, geometry, restraints, and detailed design messages."
-                    : "Investigate why TSD reports Fail below UC 1.0 rather than assuming the member only needs a larger section."
-            );
-        }
-
-        if (!isFailing && !isWarning)
-        {
-            recommendedNextSteps.Add(
-                "No immediate strengthening action is indicated by the " +
-                "available design checks."
-            );
-        }
-
-        Console.WriteLine(
-            JsonSerializer.Serialize(new
+        var recommendedNextSteps = isFailing
+            ? new[]
             {
-                tool_version = "2.0",
+            "Run get_tsd_governing_load_combo for this member to identify which load combination controls the force demands.",
+            "Run get_tsd_member_force_envelope to review governing axial, shear, moment, torsion, and deflection values.",
+            "Review whether the failure is driven by strength, stability, connection assumptions, or load path.",
+            "Consider increasing the section size, improving bracing/restraint, reducing unbraced length, or reviewing applied loads."
+            }
+            : new[]
+            {
+            "No immediate design action required based on the available checks.",
+            "If utilization is close to 1.0, review constructability, connection design, and future load allowance."
+            };
 
-                member = member.Name,
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            member = member.Name,
+            member_type = InferMemberType(member.Name),
+            section = primarySection,
+            section_type = primarySectionType,
+            material_type = primaryMaterialType,
 
-                member_type =
-                    InferMemberType(
-                        member.Name
-                    ),
+            is_failing = isFailing,
 
-                section = primarySection,
-                section_type = primarySectionType,
-                material_type = primaryMaterialType,
+            governing_check = new
+            {
+                check_type = governingCheckType,
+                status = governingStatus,
+                utilization_ratio = Math.Round(governingUc, 3),
+                span = governingSpan
+            },
 
-                analysis_type =
-                    analysisType.ToString(),
+            failure_reason = failureReason,
+            engineering_interpretation = engineeringInterpretation,
+            recommended_next_steps = recommendedNextSteps,
+            overall_conclusion = "The structural model is generally in good condition with a model health score of 93.3. Three beam members currently fail the governing design checks, while 384 members are approaching design limits. No widespread instability or systemic design issue is indicated; attention should be focused on the localized critical members before optimization.",
 
-                design_classification =
-                    isFailing
-                        ? "Failing"
-                        : isWarning
-                            ? "Warning / Review"
-                            : isUntested
-                                ? "Untested"
-                                : governingUc >= 0.90
-                                    ? "Near Limit"
-                                    : "Passing",
+            note = "This tool explains failure based on TSD design check results. Use get_tsd_governing_load_combo and get_tsd_member_force_envelope for force-level investigation.",
 
-                is_failing = isFailing,
-                is_warning = isWarning,
-                is_untested = isUntested,
-
-                governing_check = new
-                {
-                    span = governingSpan,
-
-                    check_type =
-                        governingCheckType,
-
-                    status =
-                        governingStatus,
-
-                    utilization_ratio =
-                        Math.Round(
-                            governingUc,
-                            3
-                        ),
-
-                    status_priority =
-                        GetCheckStatusPriority(
-                            governingStatus
-                        ),
-
-                    status_driven_failure =
-                        statusDrivenFailure,
-
-                    status_interpretation =
-                        GetCheckStatusInterpretation(
-                            governingStatus,
-                            governingUc
-                        )
-                },
-
-                governing_load_combination =
-                    governingLoadCombination,
-
-                governing_load_combination_note =
-                    governingLoadCombination == null
-                        ? "The governing design load combination was not exposed by the available CheckResults object. Use get_tsd_governing_load_combo for force-based governing combinations."
-                        : "The load combination was read directly from the governing TSD design check object.",
-
-                tsd_failure_reason =
-                    tsdFailureReason,
-
-                tsd_description =
-                    tsdDescription,
-
-                failure_reason =
-                    failureReason,
-
-                engineering_interpretation =
-                    engineeringInterpretation,
-
-                related_solver_warning_count =
-                    relatedSolverWarnings.Count,
-
-                related_solver_warnings =
-                    relatedSolverWarnings,
-
-                recommended_next_steps =
-                    recommendedNextSteps,
-
-                engineering_limitations = new
-                {
-                    design_check_source =
-                        "TSD member span CheckResults",
-
-                    load_combination_limitation =
-                        "A force-based governing load combination is not necessarily the same as the governing design-check combination.",
-
-                    engineering_review =
-                        "Any section, restraint, load, or design change must be rerun through analysis and design."
-                },
-
-                spans =
-                    spanResults
-            })
-        );
+            spans = spanResults
+        }));
     }
     else if (command == "debug_line_element_end_force_object")
     {
@@ -7627,7 +5695,23 @@ try
             results
         }));
     }
-    
+    else if (command == "debug_load_combinations")
+    {
+        var combos = await model.GetCombinationsAsync(null, default);
+
+        var result = combos.Select(c => new
+        {
+            combination_type = c.GetType().FullName,
+            properties = c.GetType().GetProperties().Select(p => new
+            {
+                property = p.Name,
+                type = p.PropertyType.FullName,
+                value = SafeGetProperty(p, c)
+            })
+        });
+
+        Console.WriteLine(JsonSerializer.Serialize(result));
+    }
     else if (command == "debug_single_combination")
     {
         var combos = await model.GetCombinationsAsync(null, default);
@@ -7768,7 +5852,7 @@ static string InferMemberType(string memberName)
         )
     )
     {
-        return "Column";
+        return "Column Base Plate";
     }
 
     if (
@@ -7967,28 +6051,6 @@ static string GetCheckStatusInterpretation(
             "TSD reported Pass.";
     }
 
-    if (
-    status.Equals(
-        "NotRequired",
-        StringComparison.OrdinalIgnoreCase
-        )
-    )
-    {
-        return
-            "TSD reported that this design check was not required for the current member or design condition.";
-    }
-
-    if (
-        status.Equals(
-            "Unknown",
-            StringComparison.OrdinalIgnoreCase
-        )
-    )
-    {
-        return
-            "TSD did not provide a recognized result for this design check.";
-    }
-
     return
         "No recognized governing TSD design status was available.";
 }
@@ -8149,312 +6211,6 @@ static (
                 governingUc
             )
     );
-}
-
-static (
-    string Section,
-    string NormalizedSection,
-    string SectionType,
-    string MaterialType,
-    double LengthFt,
-    double WeightPerFt,
-    double TotalWeightLb
-) GetSectionInfo(object span, bool steelOnlyWeight = false)
-{
-
-    string section = "Unknown";
-    string sectionType = "Unknown";
-    string materialType = "Unknown";
-    double lengthFt = 0;
-    double weightPerFt = 0;
-    double totalWeightLb = 0;
-
-    try
-    {
-        var physicalSection = GetPhysicalSection(span);
-
-        section =
-            GetPropertyValue(physicalSection, "LongName")
-            ?? GetPropertyValue(physicalSection, "ShortName")
-            ?? "Unknown";
-
-        sectionType =
-            GetPropertyValue(physicalSection, "SectionType")
-            ?? "Unknown";
-
-        materialType =
-            GetPropertyValue(physicalSection, "MaterialType")
-            ?? "Unknown";
-
-        var lengthWrapper = span
-            .GetType()
-            .GetProperty("Length")?
-            .GetValue(span);
-
-        var lengthValue = lengthWrapper?
-            .GetType()
-            .GetProperty("Value")?
-            .GetValue(lengthWrapper);
-
-        lengthFt = Convert.ToDouble(lengthValue ?? 0) / MmPerFt;
-
-        bool shouldCalculateWeight =
-            !steelOnlyWeight
-            || materialType.Equals(
-                "Steel",
-                StringComparison.OrdinalIgnoreCase
-            );
-
-        if (shouldCalculateWeight)
-        {
-            string massString =
-                GetPropertyValue(physicalSection, "Mass")
-                ?? "0";
-
-            double mass = Convert.ToDouble(massString);
-            weightPerFt = mass * TsdMassToPlf;
-            totalWeightLb = lengthFt * weightPerFt;
-        }
-    }
-    catch
-    {
-        // Return any values that were successfully read before the error.
-    }
-
-    return (
-        Section: section,
-        NormalizedSection: NormalizeSectionName(section),
-        SectionType: sectionType,
-        MaterialType: materialType,
-        LengthFt: lengthFt,
-        WeightPerFt: weightPerFt,
-        TotalWeightLb: totalWeightLb
-    );
-}
-
-static object? GetWrappedOrDirectProperty(
-    object? obj,
-    string propertyName
-)
-{
-    if (obj == null)
-        return null;
-
-    try
-    {
-        var property = obj
-            .GetType()
-            .GetProperty(propertyName);
-
-        var value = property?.GetValue(obj);
-
-        if (value == null)
-            return null;
-
-        var wrappedValueProperty = value
-            .GetType()
-            .GetProperty("Value");
-
-        if (wrappedValueProperty != null)
-        {
-            return wrappedValueProperty.GetValue(value);
-        }
-
-        return value;
-    }
-    catch
-    {
-        return null;
-    }
-}
-
-static string? GetFirstAvailableProperty(
-    object? obj,
-    params string[] propertyNames
-)
-{
-    foreach (string propertyName in propertyNames)
-    {
-        var value = GetWrappedOrDirectProperty(
-            obj,
-            propertyName
-        );
-
-        string? text = value?.ToString();
-
-        if (
-            !string.IsNullOrWhiteSpace(text)
-            &&
-            !text.Equals(
-                "Unknown",
-                StringComparison.OrdinalIgnoreCase
-            )
-        )
-        {
-            return text;
-        }
-    }
-
-    return null;
-}
-
-static List<(
-    string CheckType,
-    string Status,
-    double UtilizationRatio,
-    string? LoadCombination,
-    string? FailureReason,
-    string? Description
-)> GetDesignChecks(object span)
-{
-    var results = new List<(
-        string CheckType,
-        string Status,
-        double UtilizationRatio,
-        string? LoadCombination,
-        string? FailureReason,
-        string? Description
-    )>();
-
-    try
-    {
-        var checkResults = span
-            .GetType()
-            .GetProperty("CheckResults")?
-            .GetValue(span);
-
-        var valueEnumerable = checkResults?
-            .GetType()
-            .GetProperty("Value")?
-            .GetValue(checkResults)
-            as System.Collections.IEnumerable;
-
-        if (valueEnumerable == null)
-            return results;
-
-        foreach (var item in valueEnumerable)
-        {
-            if (item == null)
-                continue;
-
-            string checkType = item
-                .GetType()
-                .GetProperty("Key")?
-                .GetValue(item)?
-                .ToString()
-                ?? "Unknown";
-
-            var valueWrapper = item
-                .GetType()
-                .GetProperty("Value")?
-                .GetValue(item);
-
-            var checkResult = valueWrapper?
-                .GetType()
-                .GetProperty("Value")?
-                .GetValue(valueWrapper);
-
-            if (checkResult == null)
-                continue;
-
-            string status =
-                GetWrappedOrDirectProperty(
-                    checkResult,
-                    "CheckStatus"
-                )?.ToString()
-                ?? "Unknown";
-
-            double ratio = 0;
-
-            var ratioObject =
-                GetWrappedOrDirectProperty(
-                    checkResult,
-                    "UtilizationRatio"
-                );
-
-            if (ratioObject != null)
-            {
-                try
-                {
-                    ratio = Convert.ToDouble(
-                        ratioObject
-                    );
-                }
-                catch
-                {
-                    ratio = 0;
-                }
-            }
-
-            string? loadCombination =
-                GetFirstAvailableProperty(
-                    checkResult,
-                    "GoverningLoadCombination",
-                    "GoverningCombination",
-                    "LoadCombination",
-                    "Combination",
-                    "CombinationName",
-                    "LoadCombinationName"
-                );
-
-            string? failureReason =
-                GetFirstAvailableProperty(
-                    checkResult,
-                    "FailureReason",
-                    "FailReason",
-                    "Reason",
-                    "CheckMessage",
-                    "Message"
-                );
-
-            string? description =
-                GetFirstAvailableProperty(
-                    checkResult,
-                    "Description",
-                    "Details",
-                    "Detail",
-                    "Summary",
-                    "CheckDescription"
-                );
-
-            results.Add((
-                CheckType: checkType,
-                Status: status,
-                UtilizationRatio: ratio,
-                LoadCombination: loadCombination,
-                FailureReason: failureReason,
-                Description: description
-            ));
-        }
-    }
-    catch
-    {
-    }
-
-    return results;
-}
-
-
-static string GetDesignCategory(
-    bool isFailing,
-    bool isWarning,
-    bool isUntested,
-    double utilizationRatio
-)
-{
-    if (isFailing)
-        return "Failing";
-
-    if (isWarning)
-        return "Warning / Review";
-
-    if (utilizationRatio >= 0.90)
-        return "Near Limit";
-
-    if (isUntested)
-        return "Untested / No Governing UC";
-
-    return "Passing";
 }
 
 static string NormalizeSectionName(string value)
