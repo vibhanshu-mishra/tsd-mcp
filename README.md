@@ -15,9 +15,7 @@ Built by a structural engineer, for structural engineers. This MCP server lets y
 
 ## What Is This?
 
-MCP (Model Context Protocol) is an open standard that lets AI assistants connect to external tools and data sources. This server bridges Claude Desktop and Tekla Structural Designer 2025 via the official Remoting API — giving Claude live read access to your open structural model.
-
-No file exports. No copy-paste. Claude talks directly to whatever model you have open in TSD.
+MCP (Model Context Protocol) is an open standard that lets AI assistants connect to external tools and data sources. This server bridges Claude Desktop and Tekla Structural Designer 2025 via the official Remoting API, giving Claude live read access to your open structural model.
 
 Instead of navigating dozens of dialogues and reports, engineers can ask questions in plain English and receive engineering-focused answers in seconds. The vision is not to replace engineering judgment; it is to remove the friction of accessing engineering information.
 
