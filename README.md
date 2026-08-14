@@ -2,7 +2,7 @@
 
 > An AI-powered engineering interface for Tekla Structural Designer. Query, analyse, review, and estimate structural models using natural language through the Model Context Protocol (MCP).
 
-Built by a structural engineer, for structural engineers. This MCP server lets you talk to your open TSD models in plain English — query members, review design status, inspect load combinations, retrieve member forces, generate governing force envelopes, run steel takeoffs, estimate material costs, and interact with your live structural model in natural language.
+Built by a structural engineer, for structural engineers. This MCP server lets you talk to your open TSD models in plain English: query members, review design status, inspect load combinations, retrieve member forces, generate governing force envelopes, run steel takeoffs, estimate material costs, and interact with your live structural model in natural language.
 
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![TSD](https://img.shields.io/badge/Tekla%20Structural%20Designer-2025-green)
@@ -19,7 +19,7 @@ MCP (Model Context Protocol) is an open standard that lets AI assistants connect
 
 No file exports. No copy-paste. Claude talks directly to whatever model you have open in TSD.
 
-Instead of navigating dozens of dialogs and reports, engineers can ask questions in plain English and receive engineering-focused answers in seconds. The vision is not to replace engineering judgment; it is to remove the friction of accessing engineering information.
+Instead of navigating dozens of dialogues and reports, engineers can ask questions in plain English and receive engineering-focused answers in seconds. The vision is not to replace engineering judgment; it is to remove the friction of accessing engineering information.
 
 ---
 
